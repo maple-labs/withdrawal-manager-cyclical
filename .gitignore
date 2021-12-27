@@ -1,1 +1,6 @@
+# Dapp
 /out
+
+# Forge
+/cache
+.gas-snapshot
