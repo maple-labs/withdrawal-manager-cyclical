@@ -4,18 +4,20 @@ pragma solidity ^0.8.7;
 import { DSTest }    from "../../lib/ds-test/src/test.sol";
 import { MockERC20 } from "../../lib/erc20/src/test/mocks/MockERC20.sol";
 
+import { CashManager } from "../CashManager.sol";
+import { PoolV2 }      from "../PoolV2.sol";
+
 import { LP }           from "./accounts/LP.sol";
 import { PoolDelegate } from "./accounts/PoolDelegate.sol";
 
 import { FundsRecipient } from "./mocks/FundsRecipient.sol";
 
-import { PoolV2 } from "../RariStyle.sol";
-
 interface Vm {
     function expectRevert(bytes calldata) external;
+    function warp(uint256 timestamp) external;
 }
 
-contract PoolV2RariTest is DSTest {
+contract EntryExitTest is DSTest {
 
     MockERC20    fundsAsset;
     PoolV2       pool;
@@ -50,10 +52,10 @@ contract PoolV2RariTest is DSTest {
         assertEq(fundsAsset.balanceOf(pool.cashManager()), 0);
         assertEq(pool.balanceOf(address(lp)),              0);
 
-        vm.expectRevert("P:D:TRANSFER_FROM_FAIL");
+        vm.expectRevert("CM:CP:TRANSFER_FROM");
         lp.pool_deposit(address(pool), depositAmount);
 
-        lp.erc20_approve(address(fundsAsset), address(pool), depositAmount);
+        lp.erc20_approve(address(fundsAsset), pool.cashManager(), depositAmount);
         lp.pool_deposit(address(pool), depositAmount);
 
         assertEq(fundsAsset.balanceOf(address(lp)),        0);
@@ -69,7 +71,7 @@ contract PoolV2RariTest is DSTest {
 
         fundsAsset.mint(address(lp), depositAmount);
 
-        lp.erc20_approve(address(fundsAsset), address(pool), depositAmount);
+        lp.erc20_approve(address(fundsAsset), pool.cashManager(), depositAmount);
         lp.pool_deposit(address(pool), depositAmount);
 
         assertEq(fundsAsset.balanceOf(address(lp)),        0);
@@ -80,7 +82,6 @@ contract PoolV2RariTest is DSTest {
         vm.expectRevert(ARITHMETIC_ERROR);  // Arithmetic error
         lp.pool_withdraw(address(pool), depositAmount + 1);
         lp.pool_withdraw(address(pool), depositAmount);
-
 
         assertEq(fundsAsset.balanceOf(address(lp)),        depositAmount);
         assertEq(fundsAsset.balanceOf(address(pool)),      0);
@@ -95,7 +96,7 @@ contract PoolV2RariTest is DSTest {
 
         fundsAsset.mint(address(lp), depositAmount);
 
-        lp.erc20_approve(address(fundsAsset), address(pool), depositAmount);
+        lp.erc20_approve(address(fundsAsset), pool.cashManager(), depositAmount);
         lp.pool_deposit(address(pool), depositAmount);
 
         assertEq(fundsAsset.balanceOf(address(lp)),        0);
@@ -120,7 +121,7 @@ contract PoolV2RariTest is DSTest {
 
         fundsAsset.mint(address(lp), depositAmount);
 
-        lp.erc20_approve(address(fundsAsset), address(pool), depositAmount);
+        lp.erc20_approve(address(fundsAsset), pool.cashManager(), depositAmount);
         lp.pool_deposit(address(pool), depositAmount);
 
         assertEq(fundsAsset.balanceOf(pool.cashManager()),      depositAmount);
@@ -129,7 +130,7 @@ contract PoolV2RariTest is DSTest {
 
         vm.expectRevert("P:DF:NOT_PD");
         notPoolDelegate.pool_deployFunds(address(pool), address(fundsRecipient), depositAmount);
-        vm.expectRevert("FC:CF:TRANSFER_FAIL");
+        vm.expectRevert("CM:MF:INSUF_FUNDS");
         poolDelegate.pool_deployFunds(address(pool), address(fundsRecipient), depositAmount + 1);
         poolDelegate.pool_deployFunds(address(pool), address(fundsRecipient), depositAmount);
 
@@ -210,6 +211,8 @@ contract PoolV2RariTest is DSTest {
         fundsRecipient1.payInterest(address(fundsAsset), address(pool),  50_000 * WAD);
         fundsRecipient2.payInterest(address(fundsAsset), address(pool), 200_000 * WAD);
 
+        vm.warp(block.timestamp + CashManager(pool.cashManager()).issuanceInterval());  // Issue all interest
+
         assertEq(fundsAsset.balanceOf(pool.cashManager()),  2_250_000 * WAD);
         assertEq(pool.principalOut(),                       8_000_000 * WAD);
         assertEq(pool.totalHoldings(),                     10_250_000 * WAD);
@@ -286,6 +289,8 @@ contract PoolV2RariTest is DSTest {
         fundsRecipient1.payInterest(address(fundsAsset), address(pool), 350_000 * WAD);
         fundsRecipient2.payInterest(address(fundsAsset), address(pool), 400_000 * WAD);
 
+        vm.warp(block.timestamp + CashManager(pool.cashManager()).issuanceInterval());  // Issue all interest
+
         assertEq(fundsAsset.balanceOf(pool.cashManager()),   3_000_000 * WAD);
         assertEq(pool.principalOut(),                        8_000_000 * WAD);
         assertEq(pool.totalHoldings(),                      11_000_000 * WAD);
@@ -325,7 +330,7 @@ contract PoolV2RariTest is DSTest {
         assertEq(pool.exchangeRate(),                           1.100 ether);  // Does not change
 
         // Prove that deposit does not change equity
-        lp4.erc20_approve(address(fundsAsset), address(pool), 2_200_000 * WAD);
+        lp4.erc20_approve(address(fundsAsset), pool.cashManager(), 2_200_000 * WAD);
         lp4.pool_deposit(address(pool), 2_200_000 * WAD);
 
         assertEq(pool.balanceOf(address(lp4)),           2_000_000 * WAD);
@@ -339,7 +344,7 @@ contract PoolV2RariTest is DSTest {
 
     function _mintFundsAndDeposit(LP lp, uint256 amount) internal {
         fundsAsset.mint(address(lp), amount);
-        lp.erc20_approve(address(fundsAsset), address(pool), amount);
+        lp.erc20_approve(address(fundsAsset), pool.cashManager(), amount);
         lp.pool_deposit(address(pool), amount);
     }
 }

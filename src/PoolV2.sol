@@ -4,9 +4,10 @@ pragma solidity ^0.8.7;
 import { ERC20 }       from "../lib/erc20/src/ERC20.sol";
 import { ERC20Helper } from "../lib/erc20-helper/src/ERC20Helper.sol";
 
-import { IFundsManagerLike } from "./interfaces/Interfaces.sol";
+import { ICashManagerLike, IPrincipalManagerLike } from "./interfaces/Interfaces.sol";
 
-import { FundsManager } from "./FundsManager.sol";
+import { CashManager }      from "./CashManager.sol";
+import { PrincipalManager } from "./PrincipalManager.sol";
 
 contract PoolV2 is ERC20 {
 
@@ -27,8 +28,8 @@ contract PoolV2 is ERC20 {
 
         BASE_UNIT = 10 ** ERC20(fundsAsset_).decimals();  // NOTE: Should the LP tokens always be 18 decimals, or should they match the fundsAsset
 
-        cashManager      = address(new FundsManager());
-        principalManager = address(new FundsManager());
+        cashManager      = address(new CashManager());
+        principalManager = address(new PrincipalManager());
     }
 
     /********************/
@@ -38,21 +39,21 @@ contract PoolV2 is ERC20 {
     function deposit(uint256 amount) external {
         require(amount != 0, "P:D:ZERO_AMT");
         _mint(msg.sender, amount * BASE_UNIT / exchangeRate());
-        require(ERC20Helper.transferFrom(fundsAsset, msg.sender, cashManager, amount), "P:D:TRANSFER_FROM_FAIL");
-        IFundsManagerLike(cashManager).deployFunds();
+        ICashManagerLike(cashManager).collectPrincipal(fundsAsset, msg.sender, amount);
+        ICashManagerLike(cashManager).deployFunds();
     }
 
     function withdraw(uint256 fundsAssetAmount) external {
         require(fundsAssetAmount != 0, "P:D:ZERO_AMT");
         _burn(msg.sender, fundsAssetAmount * BASE_UNIT / exchangeRate());
-        IFundsManagerLike(cashManager).claimFunds(fundsAsset, msg.sender, fundsAssetAmount);
+        ICashManagerLike(cashManager).moveFunds(fundsAsset, msg.sender, fundsAssetAmount);
     }
 
     function redeem(uint256 poolTokenAmount) external {
         require(poolTokenAmount != 0, "P:D:ZERO_AMT");
         uint256 fundsAssetAmount = poolTokenAmount * exchangeRate() / BASE_UNIT;
         _burn(msg.sender, poolTokenAmount);
-        IFundsManagerLike(cashManager).claimFunds(fundsAsset, msg.sender, fundsAssetAmount);
+        ICashManagerLike(cashManager).moveFunds(fundsAsset, msg.sender, fundsAssetAmount);
     }
 
     /**************************************/
@@ -62,13 +63,13 @@ contract PoolV2 is ERC20 {
     function deployFunds(address recipient, uint256 amount) external {
         require(msg.sender == poolDelegate, "P:DF:NOT_PD");
         principalOut += amount;
-        IFundsManagerLike(cashManager).claimFunds(fundsAsset, recipient, amount);
+        ICashManagerLike(cashManager).moveFunds(fundsAsset, recipient, amount);
     }
 
     function claimPrincipal() public {
         uint256 principalAmount = ERC20(fundsAsset).balanceOf(principalManager);
         principalOut -= principalAmount;
-        IFundsManagerLike(principalManager).claimFunds(fundsAsset, cashManager, principalAmount);
+        IPrincipalManagerLike(principalManager).registerPrincipal(fundsAsset, cashManager, principalAmount);
     }
 
     /**********************/
@@ -82,7 +83,7 @@ contract PoolV2 is ERC20 {
     }
 
     function totalHoldings() public view returns (uint256) {
-        return principalOut + ERC20(fundsAsset).balanceOf(cashManager);
+        return principalOut + ICashManagerLike(cashManager).unlockedBalance();
     }
 
     function balanceOfUnderlying(address account) external view returns (uint256) {

@@ -15,4 +15,8 @@ export PROPTEST_CASES=$runs
 
 if [ -z "$test" ]; then match="[src/test/*.t.sol]"; else match=$test; fi
 
+rm -rf out
+
 forge test --match "$match" --verbosity 3
+
+# dapp --use solc:0.8.7 test --match "$match" --verbosity 3

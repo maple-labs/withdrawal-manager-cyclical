@@ -3,7 +3,7 @@ pragma solidity ^0.8.7;
 
 import { ERC20User } from "../../../lib/erc20/src/test/accounts/ERC20User.sol";
 
-import { IPoolV2 } from "../../interfaces/RariStyle.sol";
+import { IPoolV2 } from "../../interfaces/IPoolV2.sol";
 
 contract LP is ERC20User {
 

@@ -3,7 +3,9 @@ pragma solidity ^0.8.7;
 
 import { ERC20Helper } from "../lib/erc20-helper/src/ERC20Helper.sol";
 
-contract FundsManager {
+import { ICashManagerLike } from "./interfaces/Interfaces.sol";
+
+contract PrincipalManager {
 
     address owner;
 
@@ -15,10 +17,11 @@ contract FundsManager {
         // Deposit into AAVE-type protocol
     }
 
-    function claimFunds(address token, address destination, uint256 amount) external {
+    function registerPrincipal(address token, address cashManager, uint256 amount) external {
         require(msg.sender == owner, "FC:CF:NOT_OWNER");
         // Withdraw from AAVE-type protocol
-        require(ERC20Helper.transfer(token, destination, amount), "FC:CF:TRANSFER_FAIL");
+        require(ERC20Helper.approve(token, cashManager, amount), "FC:CF:APPROVE_FAIL");
+        ICashManagerLike(cashManager).collectPrincipal(token, address(this), amount);
     }
 
 }
