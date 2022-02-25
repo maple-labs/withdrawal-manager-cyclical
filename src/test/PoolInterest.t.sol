@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.7;
 
-import { DSTest }    from "../../lib/ds-test/src/test.sol";
+import { TestUtils } from "../../lib/contract-test-utils/contracts/test.sol";
 import { MockERC20 } from "../../lib/erc20/src/test/mocks/MockERC20.sol";
 
 import { CashManager } from "../CashManager.sol";
@@ -17,7 +17,7 @@ interface Vm {
     function warp(uint256 timestamp) external;
 }
 
-contract PoolInterestTest is DSTest {
+contract PoolInterestTest is TestUtils {
 
     MockERC20    fundsAsset;
     PoolV2       pool;
@@ -27,8 +27,6 @@ contract PoolInterestTest is DSTest {
 
     uint256 constant WAD = 10 ** 18;
 
-    Vm vm = Vm(0x7109709ECfa91a80626fF3989D68f67F5b1DD12D);
-
     function setUp() public {
         poolDelegate = new PoolDelegate();
 
@@ -36,10 +34,6 @@ contract PoolInterestTest is DSTest {
         pool       = new PoolV2(address(fundsAsset), address(poolDelegate));
 
         vm.warp(1641328389);
-    }
-
-    function constrictToRange(uint256 input, uint256 min, uint256 max) internal pure returns (uint256 output) {
-        return min == max ? max : input % (max - min) + min;
     }
 
     // Corresponding calculations: https://www.desmos.com/calculator/gb8lfzqdun

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.7;
 
-interface IPoolV2 {
+import { IERC20 } from "../../lib/erc20/src/interfaces/IERC20.sol";
+
+interface IPoolV2 is IERC20 {
 
     function fundsAsset() external view returns (address);
     function poolDelegate() external view returns (address);
@@ -9,9 +11,9 @@ interface IPoolV2 {
     function interestManager() external view returns (address);
     function principalManager() external view returns (address);
     function principalOut() external view returns (uint256);
-    function deposit(uint256 amount) external;
-    function withdraw(uint256 fundsAssetAmount) external;
-    function redeem(uint256 poolTokenAmount) external;
+    function deposit(uint256 amount) external returns(uint256);
+    function withdraw(uint256 fundsAssetAmount) external returns (uint256);
+    function redeem(uint256 poolTokenAmount) external returns (uint256);
     function deployFunds(address recipient, uint256 amount) external;
     function claimInterest() external;
     function claimPrincipal() external;
@@ -19,5 +21,7 @@ interface IPoolV2 {
     function exchangeRate() external view returns (uint256);
     function totalHoldings() external view returns (uint256);
     function balanceOfUnderlying(address account) external view returns (uint256);
+    function previewWithdraw(uint256 underlyingAmount) external view returns (uint256 shareAmount);
+    function previewRedeem(uint256 shareAmount) external view returns (uint256 underlyingAmount);
 
 }

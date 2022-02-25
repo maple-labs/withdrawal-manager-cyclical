@@ -18,4 +18,6 @@ interface IPrincipalManagerLike {
 interface IPoolV2Like {
     function cashManager() external view returns (address);
     function principalManager() external view returns (address);
+    function previewWithdraw(uint256 underlyingAmount) external view returns (uint256 shareAmount);
+    function redeem(uint256 poolTokenAmount) external returns (uint256);
 }

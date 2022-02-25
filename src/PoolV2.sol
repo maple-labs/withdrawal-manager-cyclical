@@ -36,22 +36,24 @@ contract PoolV2 is ERC20 {
     /*** LP Functions ***/
     /********************/
 
-    function deposit(uint256 amount) external {
-        require(amount != 0, "P:D:ZERO_AMT");
-        _mint(msg.sender, amount * BASE_UNIT / exchangeRate());
-        ICashManagerLike(cashManager).collectPrincipal(fundsAsset, msg.sender, amount);
+    function deposit(uint256 fundsAssetAmount) external returns (uint256 poolTokenAmount) {
+        require(fundsAssetAmount != 0, "P:D:ZERO_AMT");
+        poolTokenAmount = previewDeposit(fundsAssetAmount);
+        _mint(msg.sender, poolTokenAmount);
+        ICashManagerLike(cashManager).collectPrincipal(fundsAsset, msg.sender, fundsAssetAmount);
         ICashManagerLike(cashManager).deployFunds();
     }
 
-    function withdraw(uint256 fundsAssetAmount) external {
+    function withdraw(uint256 fundsAssetAmount) external returns (uint256 poolTokenAmount) {
         require(fundsAssetAmount != 0, "P:D:ZERO_AMT");
-        _burn(msg.sender, fundsAssetAmount * BASE_UNIT / exchangeRate());
+        poolTokenAmount = previewWithdraw(fundsAssetAmount);
+        _burn(msg.sender, poolTokenAmount);
         ICashManagerLike(cashManager).moveFunds(fundsAsset, msg.sender, fundsAssetAmount);
     }
 
-    function redeem(uint256 poolTokenAmount) external {
+    function redeem(uint256 poolTokenAmount) external returns (uint256 fundsAssetAmount) {
         require(poolTokenAmount != 0, "P:D:ZERO_AMT");
-        uint256 fundsAssetAmount = poolTokenAmount * exchangeRate() / BASE_UNIT;
+        fundsAssetAmount = previewRedeem(poolTokenAmount);
         _burn(msg.sender, poolTokenAmount);
         ICashManagerLike(cashManager).moveFunds(fundsAsset, msg.sender, fundsAssetAmount);
     }
@@ -88,6 +90,19 @@ contract PoolV2 is ERC20 {
 
     function balanceOfUnderlying(address account) external view returns (uint256) {
         return balanceOf[account] * exchangeRate() / BASE_UNIT;
+    }
+
+    // TODO: update BASE_UNIT to `precision` and use it the same way as in RDT. 
+    function previewDeposit(uint256 underlyingAmount_) public view returns (uint256 shareAmount_) {
+        shareAmount_ = underlyingAmount_ * BASE_UNIT / exchangeRate();
+    }
+
+    function previewWithdraw(uint256 underlyingAmount_) public view returns (uint256 shareAmount_) {
+        shareAmount_ = underlyingAmount_ * BASE_UNIT / exchangeRate();
+    }
+
+    function previewRedeem(uint256 shareAmount_) public view returns (uint256 underlyingAmount_) {
+        underlyingAmount_ = shareAmount_ * exchangeRate() / BASE_UNIT;
     }
 
 }

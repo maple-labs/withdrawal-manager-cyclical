@@ -2,3 +2,6 @@
 /out
 /cache
 .gas-snapshot
+
+# Mac
+.DS_Store

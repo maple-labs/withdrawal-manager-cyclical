@@ -5,6 +5,8 @@ import { ERC20User } from "../../../lib/erc20/src/test/accounts/ERC20User.sol";
 
 import { IPoolV2 } from "../../interfaces/IPoolV2.sol";
 
+import { IWithdrawalManager } from "../../interfaces/IWithdrawalManager.sol";
+
 contract PoolDelegate is ERC20User {
 
     function pool_claimInterest(address pool) external {
@@ -15,6 +17,8 @@ contract PoolDelegate is ERC20User {
         IPoolV2(pool).deployFunds(recipient, amount);
     }
 
-
+    function wm_processPeriod(address wm) external {
+        IWithdrawalManager(wm).processPeriod();
+    }
 
 }
