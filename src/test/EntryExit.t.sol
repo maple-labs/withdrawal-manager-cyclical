@@ -2,7 +2,7 @@
 pragma solidity ^0.8.7;
 
 import { TestUtils } from "../../lib/contract-test-utils/contracts/test.sol";
-import { MockERC20 } from "../../lib/erc20/src/test/mocks/MockERC20.sol";
+import { MockERC20 } from "../../lib/erc20/contracts/test/mocks/MockERC20.sol";
 
 import { CashManager } from "../CashManager.sol";
 import { PoolV2 }      from "../PoolV2.sol";
