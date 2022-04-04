@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.7;
 
-import { TestUtils } from "../../lib/contract-test-utils/contracts/test.sol";
-import { MockERC20 } from "../../lib/erc20/contracts/test/mocks/MockERC20.sol";
+import { TestUtils } from "../modules/contract-test-utils/contracts/test.sol";
+import { MockERC20 } from "../modules/erc20/contracts/test/mocks/MockERC20.sol";
 
-import { CashManager } from "../CashManager.sol";
-import { PoolV2 }      from "../PoolV2.sol";
+import { CashManager } from "../contracts/CashManager.sol";
+import { OldPoolV2 }   from "../contracts/OldPoolV2.sol";
 
 import { LP }           from "./accounts/LP.sol";
 import { PoolDelegate } from "./accounts/PoolDelegate.sol";
@@ -20,7 +20,7 @@ interface Vm {
 contract PoolInterestTest is TestUtils {
 
     MockERC20    fundsAsset;
-    PoolV2       pool;
+    OldPoolV2    pool;
     PoolDelegate poolDelegate;
 
     bytes constant ARITHMETIC_ERROR = abi.encodeWithSignature("Panic(uint256)", 0x11);
@@ -31,7 +31,7 @@ contract PoolInterestTest is TestUtils {
         poolDelegate = new PoolDelegate();
 
         fundsAsset = new MockERC20("FundsAsset", "FA", 18);
-        pool       = new PoolV2(address(fundsAsset), address(poolDelegate));
+        pool       = new OldPoolV2(address(fundsAsset), address(poolDelegate));
 
         vm.warp(1641328389);
     }

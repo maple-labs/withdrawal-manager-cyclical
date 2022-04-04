@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.7;
 
-import { ERC20 }       from "../lib/erc20/contracts/ERC20.sol";
-import { ERC20Helper } from "../lib/erc20-helper/src/ERC20Helper.sol";
+import { ERC20 }       from "../modules/erc20/contracts/ERC20.sol";
+import { ERC20Helper } from "../modules/erc20-helper/src/ERC20Helper.sol";
 
 import { ICashManagerLike, IPrincipalManagerLike } from "./interfaces/Interfaces.sol";
 
 import { CashManager }      from "./CashManager.sol";
 import { PrincipalManager } from "./PrincipalManager.sol";
 
-contract PoolV2 is ERC20 {
+contract OldPoolV2 is ERC20 {
 
     address immutable fundsAsset;
 

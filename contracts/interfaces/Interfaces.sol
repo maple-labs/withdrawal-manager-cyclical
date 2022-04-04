@@ -15,7 +15,7 @@ interface IPrincipalManagerLike {
     function deployFunds() external;
 }
 
-interface IPoolV2Like {
+interface IOldPoolV2Like {
     function cashManager() external view returns (address);
     function principalManager() external view returns (address);
     function previewWithdraw(uint256 underlyingAmount) external view returns (uint256 shareAmount);

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.7;
 
-import { IERC20 } from "../../lib/erc20/contracts/interfaces/IERC20.sol";
+import { IERC20 } from "../../modules/erc20/contracts/interfaces/IERC20.sol";
 
-interface IPoolV2 is IERC20 {
+interface IOldPoolV2 is IERC20 {
 
     function fundsAsset() external view returns (address);
     function poolDelegate() external view returns (address);

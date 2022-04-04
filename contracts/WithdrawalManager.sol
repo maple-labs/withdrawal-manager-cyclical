@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.7;
 
-import { ERC20Helper } from "../lib/erc20-helper/src/ERC20Helper.sol";
+import { ERC20Helper } from "../modules/erc20-helper/src/ERC20Helper.sol";
 
-import { ICashManagerLike, IPoolV2Like } from "./interfaces/Interfaces.sol";
-import { IWithdrawalManager }            from "./interfaces/IWithdrawalManager.sol";
+import { ICashManagerLike, IOldPoolV2Like } from "./interfaces/Interfaces.sol";
+import { IWithdrawalManager }               from "./interfaces/IWithdrawalManager.sol";
 
 /// @title Manages withdrawal requests of a liquidity pool.
 contract WithdrawalManager is IWithdrawalManager {
@@ -165,15 +165,15 @@ contract WithdrawalManager is IWithdrawalManager {
         }
 
         // Calculate maximum amount of shares that can be redeemed.
-        IPoolV2Like poolV2 = IPoolV2Like(pool);
+        IOldPoolV2Like OldPoolV2 = IOldPoolV2Like(pool);
 
-        uint256 totalFunds       = ICashManagerLike(poolV2.cashManager()).unlockedBalance();  // Total amount of currently available funds.
-        uint256 totalShares_     = poolV2.previewWithdraw(totalFunds);
+        uint256 totalFunds       = ICashManagerLike(OldPoolV2.cashManager()).unlockedBalance();  // Total amount of currently available funds.
+        uint256 totalShares_     = OldPoolV2.previewWithdraw(totalFunds);
         uint256 periodShares     = periodState.totalShares;
         uint256 redeemableShares = totalShares_ > periodShares ? periodShares : totalShares_;
 
         // Calculate amount of available funds and leftover shares.
-        uint256 availableFunds_ = redeemableShares > 0 ? poolV2.redeem(redeemableShares) : 0;
+        uint256 availableFunds_ = redeemableShares > 0 ? OldPoolV2.redeem(redeemableShares) : 0;
         uint256 leftoverShares_ = periodShares - redeemableShares;
 
         // Update the withdrawal period state.

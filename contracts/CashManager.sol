@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.7;
 
-import { ERC20Helper } from "../lib/erc20-helper/src/ERC20Helper.sol";
+import { ERC20Helper } from "../modules/erc20-helper/src/ERC20Helper.sol";
 
 interface IERC20 {
     function balanceOf(address) external view returns (uint256);

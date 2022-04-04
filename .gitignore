@@ -1,7 +1,6 @@
-# Dapp
-/out
-/cache
-.gas-snapshot
+# Forge
+cache/
+out/
 
-# Mac
+# MacOS
 .DS_Store

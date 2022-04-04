@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.7;
 
-import { TestUtils } from "../../lib/contract-test-utils/contracts/test.sol";
-import { MockERC20 } from "../../lib/erc20/contracts/test/mocks/MockERC20.sol";
+import { TestUtils } from "../modules/contract-test-utils/contracts/test.sol";
+import { MockERC20 } from "../modules/erc20/contracts/test/mocks/MockERC20.sol";
 
 import { LP }             from "./accounts/LP.sol";
 import { PoolDelegate }   from "./accounts/PoolDelegate.sol";
 import { FundsRecipient } from "./mocks/FundsRecipient.sol";
 
-import { PoolV2 }            from "../PoolV2.sol";
-import { WithdrawalManager } from "../WithdrawalManager.sol";
+import { OldPoolV2 }         from "../contracts/OldPoolV2.sol";
+import { WithdrawalManager } from "../contracts/WithdrawalManager.sol";
 
 contract WithdrawalManagerTests is TestUtils {
 
     MockERC20         _fundsAsset;
     FundsRecipient    _fundsRecipient;
-    PoolV2            _pool;
+    OldPoolV2         _pool;
     PoolDelegate      _poolDelegate;
     WithdrawalManager _withdrawalManager;
 
@@ -32,7 +32,7 @@ contract WithdrawalManagerTests is TestUtils {
         _fundsAsset        = new MockERC20("FundsAsset", "FA", 18);
         _poolDelegate      = new PoolDelegate();
         _fundsRecipient    = new FundsRecipient();
-        _pool              = new PoolV2(address(_fundsAsset), address(_poolDelegate));
+        _pool              = new OldPoolV2(address(_fundsAsset), address(_poolDelegate));
         _withdrawalManager = new WithdrawalManager(address(_pool), address(_fundsAsset), START, DURATION, FREQUENCY, COOLDOWN / FREQUENCY);
 
         // TODO: Increase the exchange rate to more than 1.
