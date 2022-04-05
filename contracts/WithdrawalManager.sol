@@ -6,7 +6,7 @@ import { ERC20Helper } from "../modules/erc20-helper/src/ERC20Helper.sol";
 import { ICashManagerLike, IOldPoolV2Like } from "./interfaces/Interfaces.sol";
 import { IWithdrawalManager }               from "./interfaces/IWithdrawalManager.sol";
 
-/// @title Manages withdrawal requests of a liquidity pool.
+/// @title Manages the withdrawal requests of a liquidity pool.
 contract WithdrawalManager is IWithdrawalManager {
 
     struct WithdrawalRequest {
@@ -16,16 +16,16 @@ contract WithdrawalManager is IWithdrawalManager {
 
     struct WithdrawalPeriodState {
         uint256 totalShares;         // Total amount of shares that have been locked into this withdrawal period.
-                                     // This value does not change after shares are redeemed for funds.
+                                     // This value does not change after shares are redeemed for assets.
         uint256 pendingWithdrawals;  // Number of accounts that have yet to withdraw from this withdrawal period. Used to collect dust on the last withdrawal.
-        uint256 availableFunds;      // Current amount of funds available for withdrawal. Decreases after an account performs a withdrawal.
+        uint256 availableAssets;     // Current amount of assets available for withdrawal. Decreases after an account performs a withdrawal.
         uint256 leftoverShares;      // Current amount of shares available for unlocking. Decreases after an account unlocks them.
         bool    isProcessed;         // Defines if the shares belonging to this withdrawal period have already been processed.
     }
 
     // Contract dependencies.
-    address public override immutable pool;        // Instance of a v2 pool.
-    address public override immutable fundsAsset;  // Type of liquidity asset.
+    address public override immutable asset;  // Underlying liquidity asset.
+    address public override immutable pool;   // Instance of a v2 pool.
 
     // TODO: Allow updates of period / cooldown.
     uint256 public override immutable periodStart;      // Beginning of the first withdrawal period.
@@ -39,13 +39,13 @@ contract WithdrawalManager is IWithdrawalManager {
     // TODO: Replace period keys with timestamp keys.
     mapping(uint256 => WithdrawalPeriodState) internal _periodStates;
 
-    constructor(address pool_, address asset_, uint256 periodStart_, uint256 periodDuration_, uint256 periodFrequency_, uint256 cooldownMultiplier_) {
+    constructor(address asset_, address pool_, uint256 periodStart_, uint256 periodDuration_, uint256 periodFrequency_, uint256 cooldownMultiplier_) {
         // TODO: Add other needed require checks.
         require(periodDuration_ <= periodFrequency_, "WM:C:OUT_OF_BOUNDS");
         require(cooldownMultiplier_ != 0,            "WM:C:COOLDOWN_ZERO");
 
-        pool       = pool_;
-        fundsAsset = asset_;
+        asset = asset_;
+        pool  = pool_;
         
         periodStart     = periodStart_;
         periodDuration  = periodDuration_;
@@ -82,7 +82,7 @@ contract WithdrawalManager is IWithdrawalManager {
         _processPeriod(period, periodEnd);
     }
 
-    function redeemPosition(uint256 sharesToReclaim_) external override returns (uint256 withdrawnFunds_, uint256 redeemedShares_, uint256 reclaimedShares_) {
+    function redeemPosition(uint256 sharesToReclaim_) external override returns (uint256 withdrawnAssets_, uint256 redeemedShares_, uint256 reclaimedShares_) {
         // Check if a withdrawal request was made.
         uint256 personalShares = _requests[msg.sender].lockedShares;
         require(personalShares != 0, "WM:RP:NO_REQUEST");
@@ -100,7 +100,7 @@ contract WithdrawalManager is IWithdrawalManager {
             _processPeriod(currentPeriod, periodEnd);
         }
 
-        ( withdrawnFunds_, redeemedShares_, reclaimedShares_ ) = _withdrawAndUnlock(msg.sender, sharesToReclaim_, personalShares, currentPeriod);
+        ( withdrawnAssets_, redeemedShares_, reclaimedShares_ ) = _withdrawAndUnlock(msg.sender, sharesToReclaim_, personalShares, currentPeriod);
 
         // Update the request and the state of all affected withdrawal periods.
         uint256 remainingShares = personalShares - redeemedShares_ - reclaimedShares_;
@@ -165,23 +165,23 @@ contract WithdrawalManager is IWithdrawalManager {
         }
 
         // Calculate maximum amount of shares that can be redeemed.
-        IOldPoolV2Like OldPoolV2 = IOldPoolV2Like(pool);
+        IOldPoolV2Like poolV2 = IOldPoolV2Like(pool);
 
-        uint256 totalFunds       = ICashManagerLike(OldPoolV2.cashManager()).unlockedBalance();  // Total amount of currently available funds.
-        uint256 totalShares_     = OldPoolV2.previewWithdraw(totalFunds);
+        uint256 totalAssets      = ICashManagerLike(poolV2.cashManager()).unlockedBalance();  // Total amount of currently available assets.
+        uint256 totalShares_     = poolV2.previewWithdraw(totalAssets);
         uint256 periodShares     = periodState.totalShares;
         uint256 redeemableShares = totalShares_ > periodShares ? periodShares : totalShares_;
 
-        // Calculate amount of available funds and leftover shares.
-        uint256 availableFunds_ = redeemableShares > 0 ? OldPoolV2.redeem(redeemableShares) : 0;
-        uint256 leftoverShares_ = periodShares - redeemableShares;
+        // Calculate amount of available assets and leftover shares.
+        uint256 availableAssets_ = redeemableShares > 0 ? poolV2.redeem(redeemableShares) : 0;
+        uint256 leftoverShares_  = periodShares - redeemableShares;
 
         // Update the withdrawal period state.
-        periodState.availableFunds = availableFunds_;
-        periodState.leftoverShares = leftoverShares_;
-        periodState.isProcessed    = true;
+        periodState.availableAssets = availableAssets_;
+        periodState.leftoverShares  = leftoverShares_;
+        periodState.isProcessed     = true;
 
-        emit PeriodProcessed(period_, availableFunds_, leftoverShares_);
+        emit PeriodProcessed(period_, availableAssets_, leftoverShares_);
     }
 
     function _unlockShares(address account_, uint256 sharesToReclaim_) internal returns (uint256 remainingShares_) {
@@ -246,32 +246,32 @@ contract WithdrawalManager is IWithdrawalManager {
         uint256 personalShares_,
         uint256 period_
     )
-        internal returns (uint256 withdrawnFunds_, uint256 redeemedShares_, uint256 reclaimedShares_)
+        internal returns (uint256 withdrawnAssets_, uint256 redeemedShares_, uint256 reclaimedShares_)
     {
         // Cache variables.
         WithdrawalPeriodState storage periodState = _periodStates[period_];
-        uint256 activeShares    = periodState.totalShares;
-        uint256 availableFunds_ = periodState.availableFunds;
-        uint256 leftoverShares_ = periodState.leftoverShares;
-        uint256 accountCount    = periodState.pendingWithdrawals;
+        uint256 activeShares     = periodState.totalShares;
+        uint256 availableAssets_ = periodState.availableAssets;
+        uint256 leftoverShares_  = periodState.leftoverShares;
+        uint256 accountCount     = periodState.pendingWithdrawals;
 
-        // [personalShares / activeShares] is the percentage of the funds / shares in the withdrawal period that the account is entitled to claim.
-        // Multiplying this amount by the amount of leftover shares and available funds calculates his "fair share".
-        withdrawnFunds_           = accountCount > 1 ? availableFunds_ * personalShares_ / activeShares : availableFunds_;
+        // [personalShares / activeShares] is the percentage of the assets / shares in the withdrawal period that the account is entitled to claim.
+        // Multiplying this amount by the amount of leftover shares and available assets calculates his "fair share".
+        withdrawnAssets_          = accountCount > 1 ? availableAssets_ * personalShares_ / activeShares : availableAssets_;
         uint256 reclaimableShares = accountCount > 1 ? leftoverShares_ * personalShares_ / activeShares : leftoverShares_;
 
-        // Remove the entitled funds and shares from the withdrawal period.
-        periodState.availableFunds -= withdrawnFunds_;
-        periodState.leftoverShares -= reclaimableShares;
+        // Remove the entitled assets and shares from the withdrawal period.
+        periodState.availableAssets -= withdrawnAssets_;
+        periodState.leftoverShares  -= reclaimableShares;
 
         // Calculate how many shares have been redeemed, and how many shares will be reclaimed.
         redeemedShares_  = personalShares_ - reclaimableShares;
         reclaimedShares_ = sharesToReclaim_ < reclaimableShares ? sharesToReclaim_ : reclaimableShares;  // TODO: Revert if `sharesToReclaim_` is too large?
 
-        // Transfer the funds to the account.
-        if (withdrawnFunds_ != 0) {
-            require(ERC20Helper.transfer(fundsAsset, account_, withdrawnFunds_), "WM:WAU:TRANSFER_FAIL");
-            emit FundsWithdrawn(account_, withdrawnFunds_);
+        // Transfer the assets to the account.
+        if (withdrawnAssets_ != 0) {
+            require(ERC20Helper.transfer(asset, account_, withdrawnAssets_), "WM:WAU:TRANSFER_FAIL");
+            emit AssetsWithdrawn(account_, withdrawnAssets_);
         }
 
         // Transfer the shares to the account.
@@ -292,6 +292,10 @@ contract WithdrawalManager is IWithdrawalManager {
         return (time_ - periodStart) / periodFrequency;
     }
 
+    function _isWithinCooldown(address account_) internal view returns (bool) {
+        return _getPeriod(block.timestamp) < _requests[account_].withdrawalPeriod;
+    }
+
     function _getWithdrawalPeriodBounds(uint256 period_) internal view returns (uint256 start_, uint256 end_) {
         start_ = periodStart + period_ * periodFrequency;
         end_   = start_ + periodDuration;
@@ -303,10 +307,6 @@ contract WithdrawalManager is IWithdrawalManager {
         nextPeriod_    = _getPeriod(block.timestamp + periodCooldown);
     }
 
-    function _isWithinCooldown(address account_) internal view returns (bool) {
-        return _getPeriod(block.timestamp) < _requests[account_].withdrawalPeriod;
-    }
-
     /**********************/
     /*** View Functions ***/
     /**********************/
@@ -314,34 +314,34 @@ contract WithdrawalManager is IWithdrawalManager {
     // TODO: Check if all these view functions are needed, or can return structs directly.
     // TODO: Discuss what naming convention to use for fixing duplicate names of local variabes and function names.
 
-    function lockedShares(address account_) external override view returns (uint256 lockedShares_) {
-        lockedShares_ = _requests[account_].lockedShares;
+    function availableAssets(uint256 period_) external override view returns (uint256 availableAssets_) {
+        availableAssets_ = _periodStates[period_].availableAssets;
     }
 
-    function withdrawalPeriod(address account_) external override view returns (uint256 withdrawalPeriod_) {
-        withdrawalPeriod_ = _requests[account_].withdrawalPeriod;
-    }
-
-    function totalShares(uint256 period_) external override view returns (uint256 totalShares_) {
-        totalShares_ = _periodStates[period_].totalShares;
-    }
-
-    function pendingWithdrawals(uint256 period_) external override view returns (uint256 pendingWithdrawals_) {
-        pendingWithdrawals_ = _periodStates[period_].pendingWithdrawals;
-    }
-
-    function availableFunds(uint256 period_) external override view returns (uint256 availableFunds_) {
-        availableFunds_ = _periodStates[period_].availableFunds;
+    function isProcessed(uint256 period_) external override view returns (bool isProcessed_) {
+        isProcessed_ = _periodStates[period_].isProcessed;
     }
 
     function leftoverShares(uint256 period_) external override view returns (uint256 leftoverShares_) {
         leftoverShares_ = _periodStates[period_].leftoverShares;
     }
 
-    function isProcessed(uint256 period_) external override view returns (bool isProcessed_) {
-        isProcessed_ = _periodStates[period_].isProcessed;
+    function lockedShares(address account_) external override view returns (uint256 lockedShares_) {
+        lockedShares_ = _requests[account_].lockedShares;
     }
-    
+
+    function pendingWithdrawals(uint256 period_) external override view returns (uint256 pendingWithdrawals_) {
+        pendingWithdrawals_ = _periodStates[period_].pendingWithdrawals;
+    }
+
+    function totalShares(uint256 period_) external override view returns (uint256 totalShares_) {
+        totalShares_ = _periodStates[period_].totalShares;
+    }
+
+    function withdrawalPeriod(address account_) external override view returns (uint256 withdrawalPeriod_) {
+        withdrawalPeriod_ = _requests[account_].withdrawalPeriod;
+    }
+
 }
 
 // TODO: Reduce error message lengths / use custom errors.
