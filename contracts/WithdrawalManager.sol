@@ -3,8 +3,8 @@ pragma solidity ^0.8.7;
 
 import { ERC20Helper } from "../modules/erc20-helper/src/ERC20Helper.sol";
 
-import { ICashManagerLike, IOldPoolV2Like } from "./interfaces/Interfaces.sol";
-import { IWithdrawalManager }               from "./interfaces/IWithdrawalManager.sol";
+import { IPoolV2Like }        from "./interfaces/IPoolV2Like.sol";
+import { IWithdrawalManager } from "./interfaces/IWithdrawalManager.sol";
 
 /// @title Manages the withdrawal requests of a liquidity pool.
 contract WithdrawalManager is IWithdrawalManager {
@@ -20,7 +20,7 @@ contract WithdrawalManager is IWithdrawalManager {
         uint256 pendingWithdrawals;  // Number of accounts that have yet to withdraw from this withdrawal period. Used to collect dust on the last withdrawal.
         uint256 availableAssets;     // Current amount of assets available for withdrawal. Decreases after an account performs a withdrawal.
         uint256 leftoverShares;      // Current amount of shares available for unlocking. Decreases after an account unlocks them.
-        bool    isProcessed;         // Defines if the shares belonging to this withdrawal period have already been processed.
+        bool    isProcessed;         // Defines if the shares belonging to this withdrawal period have been processed.
     }
 
     // Contract dependencies.
@@ -165,15 +165,14 @@ contract WithdrawalManager is IWithdrawalManager {
         }
 
         // Calculate maximum amount of shares that can be redeemed.
-        IOldPoolV2Like poolV2 = IOldPoolV2Like(pool);
+        IPoolV2Like poolV2 = IPoolV2Like(pool);
 
-        uint256 totalAssets      = ICashManagerLike(poolV2.cashManager()).unlockedBalance();  // Total amount of currently available assets.
-        uint256 totalShares_     = poolV2.previewWithdraw(totalAssets);
+        uint256 totalShares_     = poolV2.maxRedeem(address(this));
         uint256 periodShares     = periodState.totalShares;
         uint256 redeemableShares = totalShares_ > periodShares ? periodShares : totalShares_;
 
         // Calculate amount of available assets and leftover shares.
-        uint256 availableAssets_ = redeemableShares > 0 ? poolV2.redeem(redeemableShares) : 0;
+        uint256 availableAssets_ = redeemableShares > 0 ? poolV2.redeem(redeemableShares, address(this), address(this)) : 0;
         uint256 leftoverShares_  = periodShares - redeemableShares;
 
         // Update the withdrawal period state.

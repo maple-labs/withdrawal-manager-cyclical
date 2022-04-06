@@ -2,20 +2,20 @@
 pragma solidity ^0.8.7;
 
 import { TestUtils } from "../modules/contract-test-utils/contracts/test.sol";
+
 import { MockERC20 } from "../modules/erc20/contracts/test/mocks/MockERC20.sol";
 
-import { LP }             from "./accounts/LP.sol";
-import { PoolDelegate }   from "./accounts/PoolDelegate.sol";
-import { FundsRecipient } from "./mocks/FundsRecipient.sol";
+import { MockPoolV2 } from "./mocks/MockPoolV2.sol";
 
-import { OldPoolV2 }         from "../contracts/OldPoolV2.sol";
+import { LP }           from "./accounts/LP.sol";
+import { PoolDelegate } from "./accounts/PoolDelegate.sol";
+
 import { WithdrawalManager } from "../contracts/WithdrawalManager.sol";
 
 contract WithdrawalManagerTests is TestUtils {
 
-    FundsRecipient    _recipient;
     MockERC20         _asset;
-    OldPoolV2         _pool;
+    MockPoolV2        _pool;
     PoolDelegate      _poolDelegate;
     WithdrawalManager _withdrawalManager;
 
@@ -30,9 +30,8 @@ contract WithdrawalManagerTests is TestUtils {
 
     function setUp() public {
         _asset             = new MockERC20("MockAsset", "MA", 18);
-        _recipient         = new FundsRecipient();
+        _pool              = new MockPoolV2("MockPool", "MP", 18, address(_asset));
         _poolDelegate      = new PoolDelegate();
-        _pool              = new OldPoolV2(address(_asset), address(_poolDelegate));
         _withdrawalManager = new WithdrawalManager(address(_asset), address(_pool), START, DURATION, FREQUENCY, COOLDOWN / FREQUENCY);
 
         // TODO: Increase the exchange rate to more than 1.
@@ -508,7 +507,9 @@ contract WithdrawalManagerTests is TestUtils {
 
         vm.warp(START + COOLDOWN);
 
-        _poolDelegate.pool_deployFunds(address(_pool), address(_recipient), assets);
+        // Remove all liquidity.
+        _pool.removeLiquidity(assets);
+
         lp.wm_redeemPosition(address(_withdrawalManager), shares);
         
         assertEq(_pool.balanceOf(address(lp)),                 shares);
@@ -546,7 +547,9 @@ contract WithdrawalManagerTests is TestUtils {
 
         vm.warp(START + COOLDOWN);
 
-        _poolDelegate.pool_deployFunds(address(_pool), address(_recipient), lendedAssets_);
+        // Remove the amount of assets that were lended.
+        _pool.removeLiquidity(lendedAssets_);
+
         lp.wm_redeemPosition(address(_withdrawalManager), lendedAssets_);
 
         // `lendedAssets_` is equivalent to the amount of unredeemed shares due to the 1:1 exchange rate.
@@ -585,7 +588,9 @@ contract WithdrawalManagerTests is TestUtils {
 
         vm.warp(START + COOLDOWN);
 
-        _poolDelegate.pool_deployFunds(address(_pool), address(_recipient), lendedAssets_);
+        // Remove the amount of assets that were lended.
+        _pool.removeLiquidity(lendedAssets_);
+
         lp.wm_redeemPosition(address(_withdrawalManager), 0);
 
         assertEq(_pool.balanceOf(address(lp)),                 0);
@@ -609,6 +614,7 @@ contract WithdrawalManagerTests is TestUtils {
 
         // The new LP is adding enough additional liquidity for the original LP to exit.
         _mintAndDepositAssets(new LP(), lendedAssets_);
+
         lp.wm_redeemPosition(address(_withdrawalManager), 0);
 
         assertEq(_pool.balanceOf(address(lp)),                 0);
@@ -912,8 +918,8 @@ contract WithdrawalManagerTests is TestUtils {
         assertEq(_withdrawalManager.leftoverShares(2),     0);
         assertTrue(!_withdrawalManager.isProcessed(2));
 
-        // Pool delegate deploys half of the available assets.
-        _poolDelegate.pool_deployFunds(address(_pool), address(_recipient), (2e18 + 5e18 + 3e18) / 2);
+        // Remove half of the required assets.
+        _pool.removeLiquidity((2e18 + 5e18 + 3e18) / 2);
 
         // First LP performs a partial redemption, redeeming half of all shares.
         lp1.wm_redeemPosition(address(_withdrawalManager), 0);
@@ -1268,19 +1274,10 @@ contract WithdrawalManagerTests is TestUtils {
     function _mintAndDepositAssets(LP lp_, uint256 assets_) internal returns (uint256 shares_) {
         _asset.mint(address(lp_), assets_);
 
-        lp_.erc20_approve(address(_asset), _pool.cashManager(), assets_);
+        lp_.erc20_approve(address(_asset), address(_pool), assets_);
         lp_.pool_deposit(address(_pool), assets_);
 
         shares_ = _pool.balanceOf(address(lp_));
-    }
-
-    function _receiveInterest(FundsRecipient recipient_, uint256 assets_) internal {
-        _asset.mint(address(recipient_), assets_);
-        _recipient.payInterest(address(_asset), address(_pool), assets_);
-    }
-
-    function _sufferDefault(uint256 assets) internal {
-        // TODO: Implement defaults.
     }
 
 }
