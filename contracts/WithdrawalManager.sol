@@ -82,6 +82,33 @@ contract WithdrawalManager is IWithdrawalManager {
         _processPeriod(period, periodEnd);
     }
 
+    function reclaimAssets(uint256 period_) external override returns (uint256 reclaimedAssets_) {
+        // Reclaiming can only be performed by the pool delegate.
+        require(msg.sender == IPoolV2Like(pool).poolDelegate(), "WM:RA:NOT_PD");
+
+        // Assets can be reclaimed only after the withdrawal period has elapsed.
+        ( , uint256 periodEnd ) = _getWithdrawalPeriodBounds(period_);
+        require(block.timestamp >= periodEnd, "WM:RA:EARLY_RECLAIM");
+
+        WithdrawalPeriodState storage periodState = _periodStates[period_];
+
+        // Check if there are any assets that have not been withdrawn yet.
+        reclaimedAssets_ = periodState.availableAssets;
+        require(reclaimedAssets_ != 0, "WM:RA:ZERO_ASSETS");
+
+        // Deposit all available assets back into the pool.
+        require(ERC20Helper.approve(address(asset), address(pool), reclaimedAssets_), "WM:RA:APPROVE_FAIL");
+
+        // TODO: Is using the deposit function the best approach? Check how deposit is implemented in PoolV2 later and what could go wrong here.
+        uint256 mintedShares = IPoolV2Like(pool).deposit(reclaimedAssets_, address(this));
+
+        // Increase the number of leftover shares by the amount that was minted.
+        periodState.leftoverShares += mintedShares;  // TODO: Check if this causes conflicts with existing leftover shares.
+        periodState.availableAssets = 0;
+
+        emit AssetsReclaimed(period_, reclaimedAssets_);
+    }
+
     function redeemPosition(uint256 sharesToReclaim_) external override returns (uint256 withdrawnAssets_, uint256 redeemedShares_, uint256 reclaimedShares_) {
         // Check if a withdrawal request was made.
         uint256 personalShares = _requests[msg.sender].lockedShares;

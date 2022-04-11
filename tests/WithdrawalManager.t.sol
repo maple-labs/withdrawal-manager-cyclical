@@ -30,8 +30,8 @@ contract WithdrawalManagerTests is TestUtils {
 
     function setUp() public {
         _asset             = new MockERC20("MockAsset", "MA", 18);
-        _pool              = new MockPoolV2("MockPool", "MP", 18, address(_asset));
         _poolDelegate      = new PoolDelegate();
+        _pool              = new MockPoolV2("MockPool", "MP", 18, address(_asset), address(_poolDelegate));
         _withdrawalManager = new WithdrawalManager(address(_asset), address(_pool), START, DURATION, FREQUENCY, COOLDOWN / FREQUENCY);
 
         // TODO: Increase the exchange rate to more than 1.
@@ -637,6 +637,152 @@ contract WithdrawalManagerTests is TestUtils {
 
     function test_redeemPosition_withLosses() external {
         // TODO: Add example of a withdrawal after a default occurs.
+    }
+
+    /************************/
+    /*** Asset Reclaiming ***/
+    /************************/
+
+    function test_reclaimAssets_notPoolDelegate() external {
+        LP lp = _initializeLender(1);
+
+        _lockShares(lp, 1);
+
+        vm.warp(START + COOLDOWN);
+
+        // Process the period explicity, which causes redemption of all shares.
+        _poolDelegate.wm_processPeriod(address(_withdrawalManager));
+
+        // Wait until the withdrawal period elapses before reclaiming.
+        vm.warp(START + COOLDOWN + DURATION);
+
+        PoolDelegate notPoolDelegate = new PoolDelegate();
+        
+        vm.expectRevert("WM:RA:NOT_PD");
+        notPoolDelegate.wm_reclaimAssets(address(_withdrawalManager), 2);
+
+        _poolDelegate.wm_reclaimAssets(address(_withdrawalManager), 2);
+    }
+
+    function test_reclaimAssets_earlyReclaim() external {
+        LP lp = _initializeLender(1);
+
+        _lockShares(lp, 1);
+
+        vm.warp(START + COOLDOWN);
+
+        // Process the period explicity, which causes redemption of all shares.
+        _poolDelegate.wm_processPeriod(address(_withdrawalManager));
+
+        vm.warp(START + COOLDOWN + DURATION - 1);
+
+        vm.expectRevert("WM:RA:EARLY_RECLAIM");
+        _poolDelegate.wm_reclaimAssets(address(_withdrawalManager), 2);
+
+        vm.warp(START + COOLDOWN + DURATION);
+
+        _poolDelegate.wm_reclaimAssets(address(_withdrawalManager), 2);
+    }
+
+    function test_reclaimAssets_zeroAssets() external {
+        LP lp = _initializeLender(1);
+
+        _lockShares(lp, 1);
+
+        vm.warp(START + COOLDOWN + DURATION);
+
+        vm.expectRevert("WM:RA:ZERO_ASSETS");
+        _poolDelegate.wm_reclaimAssets(address(_withdrawalManager), 2);
+
+        vm.warp(START + COOLDOWN);
+
+        // Process the period explicity, which causes redemption of all shares.
+        _poolDelegate.wm_processPeriod(address(_withdrawalManager));
+
+        vm.warp(START + COOLDOWN + DURATION);
+
+        _poolDelegate.wm_reclaimAssets(address(_withdrawalManager), 2);
+    }
+
+    function test_reclaimAssets_fullLiquidity(uint256 assetsToDeposit_) external {
+        ( LP lp, uint256 assets, uint256 shares ) = _initializeLender(assetsToDeposit_, 1, MAX_ASSETS);
+
+        _lockShares(lp, shares);
+
+        assertEq(_pool.balanceOf(address(_withdrawalManager)), shares);
+
+        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
+        assertEq(_asset.balanceOf(address(_pool)),              assets);
+
+        assertEq(_withdrawalManager.availableAssets(2), 0);
+        assertEq(_withdrawalManager.leftoverShares(2),  0);
+
+        vm.warp(START + COOLDOWN);
+
+        // Process the period explicity, which causes redemption of all shares.
+        _poolDelegate.wm_processPeriod(address(_withdrawalManager));
+
+        assertEq(_pool.balanceOf(address(_withdrawalManager)), 0);
+
+        assertEq(_asset.balanceOf(address(_withdrawalManager)), assets);
+        assertEq(_asset.balanceOf(address(_pool)),              0);
+
+        assertEq(_withdrawalManager.availableAssets(2), assets);
+        assertEq(_withdrawalManager.leftoverShares(2),  0);
+
+        vm.warp(START + COOLDOWN + DURATION);
+
+        _poolDelegate.wm_reclaimAssets(address(_withdrawalManager), 2);
+
+        assertEq(_pool.balanceOf(address(_withdrawalManager)), shares);
+
+        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
+        assertEq(_asset.balanceOf(address(_pool)),              assets);
+
+        assertEq(_withdrawalManager.availableAssets(2), 0);
+        assertEq(_withdrawalManager.leftoverShares(2),  shares);
+    }
+
+    function test_reclaimAssets_partialLiquidity(uint256 assetsToDeposit_, uint256 lendedAssets_) external {
+        ( LP lp, uint256 assets, uint256 shares ) = _initializeLender(assetsToDeposit_, 2, MAX_ASSETS);
+        lendedAssets_ = constrictToRange(lendedAssets_, 1, assets - 1);
+
+        _lockShares(lp, shares);
+
+        assertEq(_pool.balanceOf(address(_withdrawalManager)), shares);
+
+        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
+        assertEq(_asset.balanceOf(address(_pool)),              assets);
+
+        assertEq(_withdrawalManager.availableAssets(2), 0);
+        assertEq(_withdrawalManager.leftoverShares(2),  0);
+
+        vm.warp(START + COOLDOWN);
+
+        // Remmove some of the liquidity.
+        _pool.removeLiquidity(lendedAssets_);
+        _poolDelegate.wm_processPeriod(address(_withdrawalManager));
+
+        // `lendedAssets_` is equivalent to the amount of unredeemed shares due to the 1:1 exchange rate
+        assertEq(_pool.balanceOf(address(_withdrawalManager)), lendedAssets_);
+
+        assertEq(_asset.balanceOf(address(_withdrawalManager)), assets - lendedAssets_);
+        assertEq(_asset.balanceOf(address(_pool)),              0);
+
+        assertEq(_withdrawalManager.availableAssets(2), assets - lendedAssets_);
+        assertEq(_withdrawalManager.leftoverShares(2),  lendedAssets_);
+
+        vm.warp(START + COOLDOWN + DURATION);
+
+        _poolDelegate.wm_reclaimAssets(address(_withdrawalManager), 2);
+
+        assertEq(_pool.balanceOf(address(_withdrawalManager)), shares);
+
+        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
+        assertEq(_asset.balanceOf(address(_pool)),              assets - lendedAssets_);
+
+        assertEq(_withdrawalManager.availableAssets(2), 0);
+        assertEq(_withdrawalManager.leftoverShares(2),  shares);
     }
 
     // TODO: Separate tests into multiple contracts.

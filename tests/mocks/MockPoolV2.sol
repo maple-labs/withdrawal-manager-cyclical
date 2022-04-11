@@ -5,12 +5,15 @@ import { MockERC20 } from "../../modules/erc20/contracts/test/mocks/MockERC20.so
 
 contract MockPoolV2 is MockERC20 {
 
+    address public immutable poolDelegate;
+
     MockERC20 internal immutable _asset;
 
     // TODO: Add functionality for setting the exchange rate to a value other than 1.
 
-    constructor(string memory name_, string memory symbol_, uint8 decimals_, address asset_) MockERC20(name_, symbol_, decimals_) {
-        _asset = MockERC20(asset_);
+    constructor(string memory name_, string memory symbol_, uint8 decimals_, address asset_, address poolDelegate_) MockERC20(name_, symbol_, decimals_) {
+        _asset       = MockERC20(asset_);
+        poolDelegate = poolDelegate_;
     }
 
     function deposit(uint256 assets_, address receiver_) external returns (uint256 shares_) {

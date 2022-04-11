@@ -9,6 +9,13 @@ interface IWithdrawalManager {
     /**************/
 
     /**
+     *  @dev   Emitted when the pool delegate reclaims assets that have not been withdrawn.
+     *  @param period_ Index of the period whose assets have been reclaimed.
+     *  @param assets_ Amount of assets that have been reclaimed.
+     */
+    event AssetsReclaimed(uint256 indexed period_, uint256 assets_);
+
+    /**
      *  @dev   Emitted when an account withdraws assets.
      *  @param account_ Address of the account.
      *  @param assets_  Amount of assets withdrawn by the account.
@@ -71,6 +78,14 @@ interface IWithdrawalManager {
      *       All shares in the same withdrawal period are processed at the same time, using the same exchange rate.
      */
     function processPeriod() external;
+
+    /**
+     *  @dev    Reclaims all available assets from the specified withdrawal period.
+     *          Can only be called by the pool delegate, and only when the specified withdrawal period has elapsed.
+     *  @param  period_          Withdrawal period from which available assets will be reclaimed.
+     *  @return reclaimedAssets_ Amount of assets that were reclaimed.
+     */
+    function reclaimAssets(uint256 period_) external returns (uint256 reclaimedAssets_);
 
     /**
      *  @dev    Withdraws assets from the pool and optionally reclaims any leftover shares.

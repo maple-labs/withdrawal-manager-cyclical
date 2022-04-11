@@ -11,4 +11,6 @@ interface IPoolV2Like {
 
     function maxRedeem(address account_) external view returns (uint256 maxShares_);
 
+    function poolDelegate() external view returns (address poolDelegate_);
+
 }
