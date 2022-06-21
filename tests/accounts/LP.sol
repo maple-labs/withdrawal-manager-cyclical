@@ -3,13 +3,13 @@ pragma solidity ^0.8.7;
 
 import { ERC20User } from "../../modules/erc20/contracts/test/accounts/ERC20User.sol";
 
-import { IPoolV2Like }        from "../../contracts/interfaces/IPoolV2Like.sol";
+import { IPoolLike }          from "../../contracts/interfaces/Interfaces.sol";
 import { IWithdrawalManager } from "../../contracts/interfaces/IWithdrawalManager.sol";
 
 contract LP is ERC20User {
 
     function pool_deposit(address pool_, uint256 assets_) external {
-        IPoolV2Like(pool_).deposit(assets_, address(this));
+        IPoolLike(pool_).deposit(assets_, address(this));
     }
 
     function wm_lockShares(address wm_, uint256 shares_) external {

@@ -3,8 +3,8 @@ pragma solidity ^0.8.7;
 
 import { ERC20Helper } from "../modules/erc20-helper/src/ERC20Helper.sol";
 
-import { IPoolV2Like }        from "./interfaces/IPoolV2Like.sol";
-import { IWithdrawalManager } from "./interfaces/IWithdrawalManager.sol";
+import { IPoolLike, IPoolManagerLike } from "./interfaces/Interfaces.sol";
+import { IWithdrawalManager }          from "./interfaces/IWithdrawalManager.sol";
 
 /// @title Manages the withdrawal requests of a liquidity pool.
 contract WithdrawalManager is IWithdrawalManager {
@@ -24,15 +24,16 @@ contract WithdrawalManager is IWithdrawalManager {
     }
 
     // Contract dependencies.
-    address public override immutable asset;  // Underlying liquidity asset.
-    address public override immutable pool;   // Instance of a v2 pool.
+    address public override immutable asset;        // Underlying liquidity asset.
+    address public override immutable pool;         // Instance of a v2 pool.
+    address public override immutable poolManager;  // Pool's manager contract.
 
     // TODO: Allow updates of period / cooldown.
     uint256 public override immutable periodStart;      // Beginning of the first withdrawal period.
     uint256 public override immutable periodDuration;   // Duration of each withdrawal period.
     uint256 public override immutable periodFrequency;  // How frequently a withdrawal period occurs.
     uint256 public override immutable periodCooldown;   // Amount of time before shares become elligible for withdrawal. TODO: Remove in a separate PR.
-    
+
     mapping(address => WithdrawalRequest) internal _requests;
 
     // The mapping key is the index of the withdrawal period (starting from 0).
@@ -46,7 +47,10 @@ contract WithdrawalManager is IWithdrawalManager {
 
         asset = asset_;
         pool  = pool_;
-        
+
+        address poolManagerCache = poolManager = IPoolLike(pool_).manager();
+        IPoolLike(pool_).approve(poolManagerCache, type(uint256).max);
+
         periodStart     = periodStart_;
         periodDuration  = periodDuration_;
         periodFrequency = periodFrequency_;
@@ -84,7 +88,7 @@ contract WithdrawalManager is IWithdrawalManager {
 
     function reclaimAssets(uint256 period_) external override returns (uint256 reclaimedAssets_) {
         // Reclaiming can only be performed by the pool delegate.
-        require(msg.sender == IPoolV2Like(pool).poolDelegate(), "WM:RA:NOT_PD");
+        require(msg.sender == IPoolLike(pool).poolDelegate(), "WM:RA:NOT_PD");
 
         // Assets can be reclaimed only after the withdrawal period has elapsed.
         ( , uint256 periodEnd ) = _getWithdrawalPeriodBounds(period_);
@@ -100,7 +104,7 @@ contract WithdrawalManager is IWithdrawalManager {
         require(ERC20Helper.approve(address(asset), address(pool), reclaimedAssets_), "WM:RA:APPROVE_FAIL");
 
         // TODO: Is using the deposit function the best approach? Check how deposit is implemented in PoolV2 later and what could go wrong here.
-        uint256 mintedShares = IPoolV2Like(pool).deposit(reclaimedAssets_, address(this));
+        uint256 mintedShares = IPoolLike(pool).deposit(reclaimedAssets_, address(this));
 
         // Increase the number of leftover shares by the amount that was minted.
         periodState.leftoverShares += mintedShares;  // TODO: Check if this causes conflicts with existing leftover shares.
@@ -191,15 +195,12 @@ contract WithdrawalManager is IWithdrawalManager {
             return;
         }
 
-        // Calculate maximum amount of shares that can be redeemed.
-        IPoolV2Like poolV2 = IPoolV2Like(pool);
-
-        uint256 totalShares_     = poolV2.maxRedeem(address(this));
+        uint256 totalShares_     = IPoolLike(pool).maxRedeem(address(this));
         uint256 periodShares     = periodState.totalShares;
         uint256 redeemableShares = totalShares_ > periodShares ? periodShares : totalShares_;
 
         // Calculate amount of available assets and leftover shares.
-        uint256 availableAssets_ = redeemableShares > 0 ? poolV2.redeem(redeemableShares, address(this), address(this)) : 0;
+        uint256 availableAssets_ = redeemableShares > 0 ? IPoolManagerLike(poolManager).redeem(redeemableShares, address(this), address(this)) : 0;
         uint256 leftoverShares_  = periodShares - redeemableShares;
 
         // Update the withdrawal period state.

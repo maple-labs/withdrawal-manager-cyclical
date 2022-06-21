@@ -136,6 +136,8 @@ interface IWithdrawalManager {
 
     function pool() external view returns (address pool_);
 
+    function poolManager() external view returns (address poolManager_);
+
     function totalShares(uint256 period_) external view returns (uint256 totalShares_);
 
     function withdrawalPeriod(address account_) external view returns (uint256 withdrawalPeriod_);

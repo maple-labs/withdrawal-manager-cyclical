@@ -2,20 +2,19 @@
 pragma solidity ^0.8.7;
 
 import { TestUtils } from "../modules/contract-test-utils/contracts/test.sol";
-
 import { MockERC20 } from "../modules/erc20/contracts/test/mocks/MockERC20.sol";
 
-import { MockPoolV2 } from "./mocks/MockPoolV2.sol";
-
-import { LP }           from "./accounts/LP.sol";
-import { PoolDelegate } from "./accounts/PoolDelegate.sol";
+import { LP }              from "./accounts/LP.sol";
+import { PoolDelegate }    from "./accounts/PoolDelegate.sol";
+import { MockPool }        from "./mocks/MockPool.sol";
+import { MockPoolManager } from "./mocks/MockPoolManager.sol";
 
 import { WithdrawalManager } from "../contracts/WithdrawalManager.sol";
 
 contract WithdrawalManagerTests is TestUtils {
 
     MockERC20         _asset;
-    MockPoolV2        _pool;
+    MockPool          _pool;
     PoolDelegate      _poolDelegate;
     WithdrawalManager _withdrawalManager;
 
@@ -31,7 +30,7 @@ contract WithdrawalManagerTests is TestUtils {
     function setUp() public {
         _asset             = new MockERC20("MockAsset", "MA", 18);
         _poolDelegate      = new PoolDelegate();
-        _pool              = new MockPoolV2("MockPool", "MP", 18, address(_asset), address(_poolDelegate));
+        _pool              = new MockPool("MockPool", "MP", 18, address(_asset), address(_poolDelegate));
         _withdrawalManager = new WithdrawalManager(address(_asset), address(_pool), START, DURATION, FREQUENCY, COOLDOWN / FREQUENCY);
 
         // TODO: Increase the exchange rate to more than 1.

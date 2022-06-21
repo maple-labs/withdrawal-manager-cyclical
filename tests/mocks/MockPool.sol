@@ -3,17 +3,26 @@ pragma solidity ^0.8.7;
 
 import { MockERC20 } from "../../modules/erc20/contracts/test/mocks/MockERC20.sol";
 
-contract MockPoolV2 is MockERC20 {
+import { MockPoolManager } from "./MockPoolManager.sol";
+
+contract MockPool is MockERC20 {
 
     address public immutable poolDelegate;
 
-    MockERC20 internal immutable _asset;
+    MockERC20       immutable _asset;
+    MockPoolManager immutable _manager;
 
     // TODO: Add functionality for setting the exchange rate to a value other than 1.
 
     constructor(string memory name_, string memory symbol_, uint8 decimals_, address asset_, address poolDelegate_) MockERC20(name_, symbol_, decimals_) {
-        _asset       = MockERC20(asset_);
+        _asset   = MockERC20(asset_);
+        _manager = new MockPoolManager(this);
+
         poolDelegate = poolDelegate_;
+    }
+
+    function addLiquidity(uint256 assets_) external {
+        _asset.mint(address(this), assets_);
     }
 
     function deposit(uint256 assets_, address receiver_) external returns (uint256 shares_) {
@@ -28,18 +37,18 @@ contract MockPoolV2 is MockERC20 {
         _asset.transfer(receiver_, assets_);
     }
 
+    function removeLiquidity(uint256 assets_) external {
+        _asset.burn(address(this), assets_);
+    }
+
+    function manager() external view returns (address manager_) {
+        manager_ = address(_manager);
+    }
+
     function maxRedeem(address account_) external view returns (uint256 maxShares_) {
         uint256 accountAssets = balanceOf[account_];
         uint256 totalAssets   = _asset.balanceOf(address(this));
         maxShares_ = accountAssets > totalAssets ? totalAssets : accountAssets;
-    }
-
-    function addLiquidity(uint256 assets_) external {
-        _asset.mint(address(this), assets_);
-    }
-
-    function removeLiquidity(uint256 assets_) external {
-        _asset.burn(address(this), assets_);
     }
 
 }
