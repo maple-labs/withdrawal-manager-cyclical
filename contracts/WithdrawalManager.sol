@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.7;
 
-import { ERC20Helper } from "../modules/erc20-helper/src/ERC20Helper.sol";
+import { ERC20Helper }        from "../modules/erc20-helper/src/ERC20Helper.sol";
+import { IMapleProxyFactory } from "../modules/maple-proxy-factory/contracts/interfaces/IMapleProxyFactory.sol";
+
+import { MapleProxiedInternals } from "../modules/maple-proxy-factory/contracts/MapleProxiedInternals.sol";
 
 import { IPoolLike, IPoolManagerLike } from "./interfaces/Interfaces.sol";
 import { IWithdrawalManager }          from "./interfaces/IWithdrawalManager.sol";
 
+// TODO: Reduce error message lengths / use custom errors.
+// TODO: Optimize storage use, investigate struct assignment.
+// TODO: Check gas usage and contract size.
+
 /// @title Manages the withdrawal requests of a liquidity pool.
-contract WithdrawalManager is IWithdrawalManager {
+contract WithdrawalManager is IWithdrawalManager, MapleProxiedInternals {
 
     struct WithdrawalRequest {
         uint256 lockedShares;      // Amount of shares that have been locked by an account.
@@ -24,37 +31,42 @@ contract WithdrawalManager is IWithdrawalManager {
     }
 
     // Contract dependencies.
-    address public override immutable asset;        // Underlying liquidity asset.
-    address public override immutable pool;         // Instance of a v2 pool.
-    address public override immutable poolManager;  // Pool's manager contract.
+    address public override asset;        // Underlying liquidity asset.
+    address public override pool;         // Instance of a v2 pool.
+    address public override poolManager;  // Pool's manager contract.
 
     // TODO: Allow updates of period / cooldown.
-    uint256 public override immutable periodStart;      // Beginning of the first withdrawal period.
-    uint256 public override immutable periodDuration;   // Duration of each withdrawal period.
-    uint256 public override immutable periodFrequency;  // How frequently a withdrawal period occurs.
-    uint256 public override immutable periodCooldown;   // Amount of time before shares become elligible for withdrawal. TODO: Remove in a separate PR.
+    uint256 public override periodStart;      // Beginning of the first withdrawal period.
+    uint256 public override periodDuration;   // Duration of each withdrawal period.
+    uint256 public override periodFrequency;  // How frequently a withdrawal period occurs.
+    uint256 public override periodCooldown;   // Amount of time before shares become eligible for withdrawal. TODO: Remove in a separate PR.
 
-    mapping(address => WithdrawalRequest) internal _requests;
+    mapping(address => WithdrawalRequest) public requests;
 
     // The mapping key is the index of the withdrawal period (starting from 0).
     // TODO: Replace period keys with timestamp keys.
-    mapping(uint256 => WithdrawalPeriodState) internal _periodStates;
+    mapping(uint256 => WithdrawalPeriodState) public periodStates;
 
-    constructor(address asset_, address pool_, uint256 periodStart_, uint256 periodDuration_, uint256 periodFrequency_, uint256 cooldownMultiplier_) {
-        // TODO: Add other needed require checks.
-        require(periodDuration_ <= periodFrequency_, "WM:C:OUT_OF_BOUNDS");
-        require(cooldownMultiplier_ != 0,            "WM:C:COOLDOWN_ZERO");
+    /***********************/
+    /*** Proxy Functions ***/
+    /***********************/
 
-        asset = asset_;
-        pool  = pool_;
+    function migrate(address migrator_, bytes calldata arguments_) external override {
+        require(msg.sender == _factory(),        "WM:M:NOT_FACTORY");
+        require(_migrate(migrator_, arguments_), "WM:M:FAILED");
+    }
 
-        address poolManagerCache = poolManager = IPoolLike(pool_).manager();
-        IPoolLike(pool_).approve(poolManagerCache, type(uint256).max);
+    function setImplementation(address newImplementation_) external override {
+        require(msg.sender == _factory(),               "WM:SI:NOT_FACTORY");
+        require(_setImplementation(newImplementation_), "WM:SI:FAILED");
+    }
 
-        periodStart     = periodStart_;
-        periodDuration  = periodDuration_;
-        periodFrequency = periodFrequency_;
-        periodCooldown  = periodFrequency_ * cooldownMultiplier_;
+    function upgrade(uint256 toVersion_, bytes calldata arguments_) external override {
+        require(msg.sender == IPoolLike(pool).poolDelegate(), "WM:U:NOT_PD");
+
+        emit Upgraded(toVersion_, arguments_);
+
+        IMapleProxyFactory(_factory()).upgradeInstance(toVersion_, arguments_);
     }
 
     /**************************/
@@ -80,7 +92,7 @@ contract WithdrawalManager is IWithdrawalManager {
     function processPeriod() external override {
         // Check if the current period has already been processed.
         uint256 period = _getPeriod(block.timestamp);
-        require(!_periodStates[period].isProcessed, "WM:PP:DOUBLE_PROCESS");
+        require(!periodStates[period].isProcessed, "WM:PP:DOUBLE_PROCESS");
 
         ( , uint256 periodEnd ) = _getWithdrawalPeriodBounds(period);
         _processPeriod(period, periodEnd);
@@ -94,7 +106,7 @@ contract WithdrawalManager is IWithdrawalManager {
         ( , uint256 periodEnd ) = _getWithdrawalPeriodBounds(period_);
         require(block.timestamp >= periodEnd, "WM:RA:EARLY_RECLAIM");
 
-        WithdrawalPeriodState storage periodState = _periodStates[period_];
+        WithdrawalPeriodState storage periodState = periodStates[period_];
 
         // Check if there are any assets that have not been withdrawn yet.
         reclaimedAssets_ = periodState.availableAssets;
@@ -115,7 +127,7 @@ contract WithdrawalManager is IWithdrawalManager {
 
     function redeemPosition(uint256 sharesToReclaim_) external override returns (uint256 withdrawnAssets_, uint256 redeemedShares_, uint256 reclaimedShares_) {
         // Check if a withdrawal request was made.
-        uint256 personalShares = _requests[msg.sender].lockedShares;
+        uint256 personalShares = requests[msg.sender].lockedShares;
         require(personalShares != 0, "WM:RP:NO_REQUEST");
 
         // Get the current and next available withdrawal period.
@@ -127,7 +139,7 @@ contract WithdrawalManager is IWithdrawalManager {
         require(block.timestamp >= periodStart_, "WM:RP:EARLY_WITHDRAW");
 
         // If the period has not been processed yet, do so before the withdrawal.
-        if (!_periodStates[currentPeriod].isProcessed) {
+        if (!periodStates[currentPeriod].isProcessed) {
             _processPeriod(currentPeriod, periodEnd);
         }
 
@@ -159,7 +171,7 @@ contract WithdrawalManager is IWithdrawalManager {
         require(sharesToLock_ != 0, "WM:LS:ZERO_AMOUNT");
 
         // If a withdrawal is due no shares can be locked.
-        uint256 previousShares = _requests[account_].lockedShares;
+        uint256 previousShares = requests[account_].lockedShares;
         require(previousShares == 0 || _isWithinCooldown(account_), "WM:LS:WITHDRAW_DUE");
 
         // Transfer the shares into the withdrawal manager.
@@ -174,19 +186,19 @@ contract WithdrawalManager is IWithdrawalManager {
     function _movePeriodShares(uint256 period_, uint256 nextPeriod_, uint256 currentShares_, uint256 nextShares_) internal {
         // If the account already has locked shares, remove them from the current period.
         if (currentShares_ != 0) {
-            _periodStates[period_].totalShares        -= currentShares_;
-            _periodStates[period_].pendingWithdrawals -= 1;
+            periodStates[period_].totalShares        -= currentShares_;
+            periodStates[period_].pendingWithdrawals -= 1;
         }
 
         // Add shares into the next period if necessary.
         if (nextShares_ != 0) {
-            _periodStates[nextPeriod_].totalShares        += nextShares_;
-            _periodStates[nextPeriod_].pendingWithdrawals += 1;
+            periodStates[nextPeriod_].totalShares        += nextShares_;
+            periodStates[nextPeriod_].pendingWithdrawals += 1;
         }
     }
 
     function _processPeriod(uint256 period_, uint256 periodEnd) internal {
-        WithdrawalPeriodState storage periodState = _periodStates[period_];
+        WithdrawalPeriodState storage periodState = periodStates[period_];
 
         // If the withdrawal period elapsed, perform no redemption of shares.
         if (block.timestamp >= periodEnd) {
@@ -221,7 +233,7 @@ contract WithdrawalManager is IWithdrawalManager {
         require(ERC20Helper.transfer(pool, account_, sharesToReclaim_), "WM:US:TRANSFER_FAIL");
 
         // Calculate the amount of remaining shares.
-        remainingShares_ = _requests[account_].lockedShares - sharesToReclaim_;
+        remainingShares_ = requests[account_].lockedShares - sharesToReclaim_;
 
         emit SharesUnlocked(account_, sharesToReclaim_);
     }
@@ -230,16 +242,16 @@ contract WithdrawalManager is IWithdrawalManager {
     function _updatePeriodShares(uint256 period_, uint256 currentShares_, uint256 nextShares_) internal {
         // If additional shares were locked, increase the amount of total shares locked in the period.
         if (nextShares_ > currentShares_) {
-            _periodStates[period_].totalShares += nextShares_ - currentShares_;
+            periodStates[period_].totalShares += nextShares_ - currentShares_;
         }
         // If shares were unlocked, decrease the amount of total shares locked in the period.
         else {
-            _periodStates[period_].totalShares -= currentShares_ - nextShares_;
+            periodStates[period_].totalShares -= currentShares_ - nextShares_;
         }
 
         // If the account has no remaining shares, decrease the number of withdrawal requests.
         if (nextShares_ == 0) {
-            _periodStates[period_].pendingWithdrawals -= 1;
+            periodStates[period_].pendingWithdrawals -= 1;
         }
     }
 
@@ -257,12 +269,12 @@ contract WithdrawalManager is IWithdrawalManager {
     function _updateRequest(address account_, uint256 shares_, uint256 period_) internal {
         // If any shares are remaining, perform the update.
         if (shares_ != 0) {
-            _requests[account_] = WithdrawalRequest({ lockedShares: shares_, withdrawalPeriod: period_ });
+            requests[account_] = WithdrawalRequest({ lockedShares: shares_, withdrawalPeriod: period_ });
             emit WithdrawalPending(account_, period_);
         }
         // Otherwise, clean up the request.
         else {
-            delete _requests[account_];
+            delete requests[account_];
             emit WithdrawalCancelled(account_);
         }
     }
@@ -276,7 +288,7 @@ contract WithdrawalManager is IWithdrawalManager {
         internal returns (uint256 withdrawnAssets_, uint256 redeemedShares_, uint256 reclaimedShares_)
     {
         // Cache variables.
-        WithdrawalPeriodState storage periodState = _periodStates[period_];
+        WithdrawalPeriodState storage periodState = periodStates[period_];
         uint256 activeShares     = periodState.totalShares;
         uint256 availableAssets_ = periodState.availableAssets;
         uint256 leftoverShares_  = periodState.leftoverShares;
@@ -314,13 +326,8 @@ contract WithdrawalManager is IWithdrawalManager {
 
     // TODO: Use timestamps instead of periods for measuring time.
 
-    function _getPeriod(uint256 time_) internal view returns (uint256) {
-        if (time_ <= periodStart) return 0;
-        return (time_ - periodStart) / periodFrequency;
-    }
-
-    function _isWithinCooldown(address account_) internal view returns (bool) {
-        return _getPeriod(block.timestamp) < _requests[account_].withdrawalPeriod;
+    function _getPeriod(uint256 time_) internal view returns (uint256 period_) {
+        period_ = time_ <= periodStart ? 0 : (time_ - periodStart) / periodFrequency;
     }
 
     function _getWithdrawalPeriodBounds(uint256 period_) internal view returns (uint256 start_, uint256 end_) {
@@ -330,8 +337,12 @@ contract WithdrawalManager is IWithdrawalManager {
 
     function _getWithdrawalPeriods(address account_) internal view returns (uint256 currentPeriod_, uint256 nextPeriod_) {
         // Fetch the current withdrawal period for the account, and calculate the next available one.
-        currentPeriod_ = _requests[account_].withdrawalPeriod;
+        currentPeriod_ = requests[account_].withdrawalPeriod;
         nextPeriod_    = _getPeriod(block.timestamp + periodCooldown);
+    }
+
+    function _isWithinCooldown(address account_) internal view returns (bool isWithinCooldown_) {
+        isWithinCooldown_ = _getPeriod(block.timestamp) < requests[account_].withdrawalPeriod;
     }
 
     /**********************/
@@ -342,35 +353,39 @@ contract WithdrawalManager is IWithdrawalManager {
     // TODO: Discuss what naming convention to use for fixing duplicate names of local variabes and function names.
 
     function availableAssets(uint256 period_) external override view returns (uint256 availableAssets_) {
-        availableAssets_ = _periodStates[period_].availableAssets;
+        availableAssets_ = periodStates[period_].availableAssets;
+    }
+
+    function factory() external view override returns (address factory_) {
+        return _factory();
+    }
+
+    function implementation() external view override returns (address implementation_) {
+        return _implementation();
     }
 
     function isProcessed(uint256 period_) external override view returns (bool isProcessed_) {
-        isProcessed_ = _periodStates[period_].isProcessed;
+        isProcessed_ = periodStates[period_].isProcessed;
     }
 
     function leftoverShares(uint256 period_) external override view returns (uint256 leftoverShares_) {
-        leftoverShares_ = _periodStates[period_].leftoverShares;
+        leftoverShares_ = periodStates[period_].leftoverShares;
     }
 
     function lockedShares(address account_) external override view returns (uint256 lockedShares_) {
-        lockedShares_ = _requests[account_].lockedShares;
+        lockedShares_ = requests[account_].lockedShares;
     }
 
     function pendingWithdrawals(uint256 period_) external override view returns (uint256 pendingWithdrawals_) {
-        pendingWithdrawals_ = _periodStates[period_].pendingWithdrawals;
+        pendingWithdrawals_ = periodStates[period_].pendingWithdrawals;
     }
 
     function totalShares(uint256 period_) external override view returns (uint256 totalShares_) {
-        totalShares_ = _periodStates[period_].totalShares;
+        totalShares_ = periodStates[period_].totalShares;
     }
 
     function withdrawalPeriod(address account_) external override view returns (uint256 withdrawalPeriod_) {
-        withdrawalPeriod_ = _requests[account_].withdrawalPeriod;
+        withdrawalPeriod_ = requests[account_].withdrawalPeriod;
     }
 
 }
-
-// TODO: Reduce error message lengths / use custom errors.
-// TODO: Optimize storage use, investigate struct assignment.
-// TODO: Check gas usage and contract size.

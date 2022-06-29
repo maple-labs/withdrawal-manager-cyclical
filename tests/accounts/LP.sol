@@ -8,20 +8,20 @@ import { IWithdrawalManager } from "../../contracts/interfaces/IWithdrawalManage
 
 contract LP is ERC20User {
 
-    function pool_deposit(address pool_, uint256 assets_) external {
-        IPoolLike(pool_).deposit(assets_, address(this));
+    function pool_deposit(address pool_, uint256 assets_) external returns (uint256 shares_) {
+        return IPoolLike(pool_).deposit(assets_, address(this));
     }
 
-    function wm_lockShares(address wm_, uint256 shares_) external {
-        IWithdrawalManager(wm_).lockShares(shares_);
+    function withdrawalManager_lockShares(address withdrawalManager_, uint256 shares_) external returns (uint256 totalShares_) {
+        return IWithdrawalManager(withdrawalManager_).lockShares(shares_);
     }
 
-    function wm_redeemPosition(address wm_, uint256 shares_) external {
-        IWithdrawalManager(wm_).redeemPosition(shares_);
+    function withdrawalManager_redeemPosition(address withdrawalManager_, uint256 shares_) external returns (uint256 withdrawnAssets_, uint256 redeemedShares_, uint256 remainingShares_) {
+        return IWithdrawalManager(withdrawalManager_).redeemPosition(shares_);
     }
 
-    function wm_unlockShares(address wm_, uint256 shares_) external {
-        IWithdrawalManager(wm_).unlockShares(shares_);
+    function withdrawalManager_unlockShares(address withdrawalManager_, uint256 shares_) external returns (uint256 remainingShares_) {
+        return IWithdrawalManager(withdrawalManager_).unlockShares(shares_);
     }
 
 }

@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.7;
 
+import { IMapleProxied } from "../../modules/maple-proxy-factory/contracts/interfaces/IMapleProxied.sol";
+
 /// @title Manages the withdrawal requests of a liquidity pool.
-interface IWithdrawalManager {
+interface IWithdrawalManager is IMapleProxied {
 
     /**************/
     /*** Events ***/
@@ -114,6 +116,7 @@ interface IWithdrawalManager {
     /*** View Functions ***/
     /**********************/
 
+    // Underlying liquidity asset.
     function asset() external view returns (address asset_);
 
     function availableAssets(uint256 period_) external view returns (uint256 availableAssets_);
@@ -126,14 +129,19 @@ interface IWithdrawalManager {
 
     function pendingWithdrawals(uint256 period_) external view returns (uint256 pendingWithdrawals_);
 
+    // Amount of time before shares become eligible for withdrawal. TODO: Remove in a separate PR.
     function periodCooldown() external view returns (uint256 periodCooldown_);
 
+    // Duration of each withdrawal period.
     function periodDuration() external view returns (uint256 periodDuration_);
 
+    // How frequently a withdrawal period occurs.
     function periodFrequency() external view returns (uint256 periodFrequency_);
 
+    // Beginning of the first withdrawal period.
     function periodStart() external view returns (uint256 periodStart_);
 
+    // Instance of a v2 pool.
     function pool() external view returns (address pool_);
 
     function poolManager() external view returns (address poolManager_);

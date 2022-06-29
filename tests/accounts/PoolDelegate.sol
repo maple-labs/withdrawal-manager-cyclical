@@ -7,12 +7,12 @@ import { IWithdrawalManager } from "../../contracts/interfaces/IWithdrawalManage
 
 contract PoolDelegate is ERC20User {
 
-    function wm_processPeriod(address wm_) external {
-        IWithdrawalManager(wm_).processPeriod();
+    function withdrawalManager_processPeriod(address withdrawalManager_) external {
+        IWithdrawalManager(withdrawalManager_).processPeriod();
     }
 
-    function wm_reclaimAssets(address wm_, uint256 period_) external {
-        IWithdrawalManager(wm_).reclaimAssets(period_);
+    function withdrawalManager_reclaimAssets(address withdrawalManager_, uint256 period_) external returns (uint256 reclaimedAssets_) {
+        return IWithdrawalManager(withdrawalManager_).reclaimAssets(period_);
     }
 
 }

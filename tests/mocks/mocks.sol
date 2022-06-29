@@ -3,8 +3,6 @@ pragma solidity ^0.8.7;
 
 import { MockERC20 } from "../../modules/erc20/contracts/test/mocks/MockERC20.sol";
 
-import { MockPoolManager } from "./MockPoolManager.sol";
-
 contract MockPool is MockERC20 {
 
     address public immutable poolDelegate;
@@ -49,6 +47,59 @@ contract MockPool is MockERC20 {
         uint256 accountAssets = balanceOf[account_];
         uint256 totalAssets   = _asset.balanceOf(address(this));
         maxShares_ = accountAssets > totalAssets ? totalAssets : accountAssets;
+    }
+
+}
+
+contract MockPoolManager {
+
+    MockPool _pool;
+
+    constructor(MockPool pool_) {
+        _pool = pool_;
+    }
+
+    function redeem(uint256 shares_, address receiver_, address owner_) external returns (uint256 assets_) {
+        assets_ = _pool.redeem(shares_, receiver_, owner_);
+    }
+
+}
+
+contract MapleGlobalsMock {
+
+    address public governor;
+    address public mapleTreasury;
+
+    bool public protocolPaused;
+
+    uint256 public investorFee;
+    uint256 public treasuryFee;
+
+    constructor (address governor_, address mapleTreasury_, uint256 investorFee_, uint256 treasuryFee_) {
+        governor      = governor_;
+        mapleTreasury = mapleTreasury_;
+        investorFee   = investorFee_;
+        treasuryFee   = treasuryFee_;
+    }
+
+    function setProtocolPaused(bool paused_) external {
+        protocolPaused = paused_;
+    }
+
+    function setInvestorFee(uint256 investorFee_) external {
+        investorFee = investorFee_;
+    }
+
+    function setTreasuryFee(uint256 treasuryFee_) external {
+        treasuryFee = treasuryFee_;
+    }
+
+    function setGovernor(address governor_) external {
+        governor = governor_;
+    }
+
+    function setMapleTreasury(address mapleTreasury_) external {
+        mapleTreasury = mapleTreasury_;
     }
 
 }
