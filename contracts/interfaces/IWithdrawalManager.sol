@@ -3,8 +3,10 @@ pragma solidity ^0.8.7;
 
 import { IMapleProxied } from "../../modules/maple-proxy-factory/contracts/interfaces/IMapleProxied.sol";
 
+import { IWithdrawalManagerStorage } from "./IWithdrawalManagerStorage.sol";
+
 /// @title Manages the withdrawal requests of a liquidity pool.
-interface IWithdrawalManager is IMapleProxied {
+interface IWithdrawalManager is IMapleProxied, IWithdrawalManagerStorage {
 
     /**************/
     /*** Events ***/
@@ -116,9 +118,6 @@ interface IWithdrawalManager is IMapleProxied {
     /*** View Functions ***/
     /**********************/
 
-    // Underlying liquidity asset.
-    function asset() external view returns (address asset_);
-
     function availableAssets(uint256 period_) external view returns (uint256 availableAssets_);
 
     function isProcessed(uint256 period_) external view returns (bool isProcesssed_);
@@ -128,23 +127,6 @@ interface IWithdrawalManager is IMapleProxied {
     function lockedShares(address account_) external view returns (uint256 lockedShares_);
 
     function pendingWithdrawals(uint256 period_) external view returns (uint256 pendingWithdrawals_);
-
-    // Amount of time before shares become eligible for withdrawal. TODO: Remove in a separate PR.
-    function periodCooldown() external view returns (uint256 periodCooldown_);
-
-    // Duration of each withdrawal period.
-    function periodDuration() external view returns (uint256 periodDuration_);
-
-    // How frequently a withdrawal period occurs.
-    function periodFrequency() external view returns (uint256 periodFrequency_);
-
-    // Beginning of the first withdrawal period.
-    function periodStart() external view returns (uint256 periodStart_);
-
-    // Instance of a v2 pool.
-    function pool() external view returns (address pool_);
-
-    function poolManager() external view returns (address poolManager_);
 
     function totalShares(uint256 period_) external view returns (uint256 totalShares_);
 

@@ -9,43 +9,14 @@ import { MapleProxiedInternals } from "../modules/maple-proxy-factory/contracts/
 import { IPoolLike, IPoolManagerLike } from "./interfaces/Interfaces.sol";
 import { IWithdrawalManager }          from "./interfaces/IWithdrawalManager.sol";
 
+import { WithdrawalManagerStorage } from "./WithdrawalManagerStorage.sol";
+
 // TODO: Reduce error message lengths / use custom errors.
 // TODO: Optimize storage use, investigate struct assignment.
 // TODO: Check gas usage and contract size.
 
 /// @title Manages the withdrawal requests of a liquidity pool.
-contract WithdrawalManager is IWithdrawalManager, MapleProxiedInternals {
-
-    struct WithdrawalRequest {
-        uint256 lockedShares;      // Amount of shares that have been locked by an account.
-        uint256 withdrawalPeriod;  // Index of the pending withdrawal period.
-    }
-
-    struct WithdrawalPeriodState {
-        uint256 totalShares;         // Total amount of shares that have been locked into this withdrawal period.
-                                     // This value does not change after shares are redeemed for assets.
-        uint256 pendingWithdrawals;  // Number of accounts that have yet to withdraw from this withdrawal period. Used to collect dust on the last withdrawal.
-        uint256 availableAssets;     // Current amount of assets available for withdrawal. Decreases after an account performs a withdrawal.
-        uint256 leftoverShares;      // Current amount of shares available for unlocking. Decreases after an account unlocks them.
-        bool    isProcessed;         // Defines if the shares belonging to this withdrawal period have been processed.
-    }
-
-    // Contract dependencies.
-    address public override asset;        // Underlying liquidity asset.
-    address public override pool;         // Instance of a v2 pool.
-    address public override poolManager;  // Pool's manager contract.
-
-    // TODO: Allow updates of period / cooldown.
-    uint256 public override periodStart;      // Beginning of the first withdrawal period.
-    uint256 public override periodDuration;   // Duration of each withdrawal period.
-    uint256 public override periodFrequency;  // How frequently a withdrawal period occurs.
-    uint256 public override periodCooldown;   // Amount of time before shares become eligible for withdrawal. TODO: Remove in a separate PR.
-
-    mapping(address => WithdrawalRequest) public requests;
-
-    // The mapping key is the index of the withdrawal period (starting from 0).
-    // TODO: Replace period keys with timestamp keys.
-    mapping(uint256 => WithdrawalPeriodState) public periodStates;
+contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, MapleProxiedInternals {
 
     /***********************/
     /*** Proxy Functions ***/
@@ -327,18 +298,18 @@ contract WithdrawalManager is IWithdrawalManager, MapleProxiedInternals {
     // TODO: Use timestamps instead of periods for measuring time.
 
     function _getPeriod(uint256 time_) internal view returns (uint256 period_) {
-        period_ = time_ <= periodStart ? 0 : (time_ - periodStart) / periodFrequency;
+        period_ = time_ <= periodStart ? 0 : (time_ - periodStart) / periodDuration;
     }
 
     function _getWithdrawalPeriodBounds(uint256 period_) internal view returns (uint256 start_, uint256 end_) {
-        start_ = periodStart + period_ * periodFrequency;
-        end_   = start_ + periodDuration;
+        start_ = periodStart + period_ * periodDuration;
+        end_   = start_ + withdrawalWindow;
     }
 
     function _getWithdrawalPeriods(address account_) internal view returns (uint256 currentPeriod_, uint256 nextPeriod_) {
         // Fetch the current withdrawal period for the account, and calculate the next available one.
         currentPeriod_ = requests[account_].withdrawalPeriod;
-        nextPeriod_    = _getPeriod(block.timestamp + periodCooldown);
+        nextPeriod_    = _getPeriod(block.timestamp + cooldown);
     }
 
     function _isWithinCooldown(address account_) internal view returns (bool isWithinCooldown_) {
