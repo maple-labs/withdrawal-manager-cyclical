@@ -53,10 +53,16 @@ contract MockPool is MockERC20 {
 
 contract MockPoolManager {
 
+    address public admin;
+
     MockPool _pool;
 
     constructor(MockPool pool_) {
         _pool = pool_;
+    }
+
+    function setAdmin(address admin_) external {
+        admin = admin_;
     }
 
     function redeem(uint256 shares_, address receiver_, address owner_) external returns (uint256 assets_) {

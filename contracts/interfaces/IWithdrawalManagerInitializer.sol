@@ -7,20 +7,18 @@ interface IWithdrawalManagerInitializer {
     function encodeArguments(
         address asset_,
         address pool_,
-        uint256 periodStart_,
-        uint256 periodDuration_,
-        uint256 periodFrequency_,
-        uint256 cooldownMultiplier_
+        uint256 cycleStart_,
+        uint256 withdrawWindowDuration_,
+        uint256 cycleDuration_
     ) external pure returns (bytes memory encodedArguments_);
 
     function decodeArguments(bytes calldata encodedArguments_)
         external pure returns (
             address asset_,
             address pool_,
-            uint256 periodStart_,
-            uint256 periodDuration_,
-            uint256 periodFrequency_,
-            uint256 cooldownMultiplier_
+            uint256 cycleStart_,
+            uint256 withdrawWindowDuration_,
+            uint256 cycleDuration_
         );
 
 }

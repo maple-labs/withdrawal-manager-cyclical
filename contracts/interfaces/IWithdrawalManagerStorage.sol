@@ -5,24 +5,16 @@ interface IWithdrawalManagerStorage {
 
     function asset() external view returns (address asset_);
 
-    // Amount of time before shares become eligible for withdrawal. TODO: Remove in a separate PR.
-    function cooldown() external view returns (uint256 cooldown_);
-
-    function periodDuration() external view returns (uint256 periodFrequency_);
+    function configurations(uint256 id_) external view returns (uint64 startingCycleId_, uint64 startingTime_, uint64 withdrawalWindowDuration_, uint64 cycleDuration_);
 
     // Beginning of the first withdrawal period.
-    function periodStart() external view returns (uint256 periodStart_);
-
-    function periodStates(uint256 periodId_) external view returns (uint256 totalShares_, uint256 pendingWithdrawal, uint256 availableAssets_, uint256 leftoverShares_, bool isProcessed_);
+    function cycleStates(uint256 cycleId_) external view returns (uint256 totalShares_, uint256 pendingWithdrawal, uint256 availableAssets_, uint256 leftoverShares_, bool isProcessed_);
 
     // Instance of a v2 pool.
     function pool() external view returns (address pool_);
 
     function poolManager() external view returns (address poolManager_);
 
-    function requests(address user_) external view returns (uint256 lockedShares_, uint256 withdrawalPeriod_); 
-
-    // Duration of each withdrawal period.
-    function withdrawalWindow() external view returns (uint256 periodDuration_);
+    function requests(address user_) external view returns (uint256 lockedShares_, uint256 withdrawalCycleId_); 
 
 }

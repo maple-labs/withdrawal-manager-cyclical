@@ -18,51 +18,46 @@ contract WithdrawalManagerInitializer is IWithdrawalManagerInitializer, Withdraw
     function encodeArguments(
         address asset_,
         address pool_,
-        uint256 periodStart_,
+        uint256 cycleStart_,
         uint256 withdrawalWindow_,
-        uint256 periodFrequency_,
-        uint256 cooldownMultiplier_
+        uint256 cycleDuration_
     ) external pure override returns (bytes memory encodedArguments_) {
-        return abi.encode(asset_, pool_, periodStart_, withdrawalWindow_, periodFrequency_, cooldownMultiplier_);
+        return abi.encode(asset_, pool_, cycleStart_, withdrawalWindow_, cycleDuration_);
     }
 
     function decodeArguments(bytes calldata encodedArguments_)
         public pure override returns (
             address asset_,
             address pool_,
-            uint256 periodStart_,
+            uint256 cycleStart_,
             uint256 withdrawalWindow_,
-            uint256 periodFrequency_,
-            uint256 cooldownMultiplier_
+            uint256 cycleDuration_
         )
     {
         (
             asset_,
             pool_,
-            periodStart_,
+            cycleStart_,
             withdrawalWindow_,
-            periodFrequency_,
-            cooldownMultiplier_
-        ) = abi.decode(encodedArguments_, (address, address, uint256, uint256, uint256, uint256));
+            cycleDuration_
+        ) = abi.decode(encodedArguments_, (address, address, uint256, uint256, uint256));
     }
 
     fallback() external {
         (
             address asset_,
             address pool_,
-            uint256 periodStart_,
+            uint256 cycleStart_,
             uint256 withdrawalWindow_,
-            uint256 periodFrequency_,
-            uint256 cooldownMultiplier_
+            uint256 cycleDuration_
         ) = decodeArguments(msg.data);
 
-        _initialize(asset_, pool_, periodStart_, withdrawalWindow_, periodFrequency_, cooldownMultiplier_);
+        _initialize(asset_, pool_, cycleStart_, withdrawalWindow_, cycleDuration_);
     }
 
-    function _initialize(address asset_, address pool_, uint256 periodStart_, uint256 withdrawalWindow_, uint256 periodFrequency_, uint256 cooldownMultiplier_) internal {
+    function _initialize(address asset_, address pool_, uint256 cycleStart_, uint256 withdrawalWindow_, uint256 cycleDuration_) internal {
         // TODO: Add other needed require checks.
-        require(withdrawalWindow_ <= periodFrequency_, "WMI:I:OUT_OF_BOUNDS");
-        require(cooldownMultiplier_ != 0,            "WMI:I:COOLDOWN_ZERO");
+        require(withdrawalWindow_ <= cycleDuration_, "WMI:I:OUT_OF_BOUNDS");
 
         asset = asset_;
         pool  = pool_;
@@ -70,10 +65,13 @@ contract WithdrawalManagerInitializer is IWithdrawalManagerInitializer, Withdraw
         address poolManagerCache = poolManager = IPoolLike(pool_).manager();
         IPoolLike(pool_).approve(poolManagerCache, type(uint256).max);
 
-        periodStart      = periodStart_;
-        withdrawalWindow = withdrawalWindow_;
-        periodDuration   = periodFrequency_;
-        cooldown         = periodFrequency_ * cooldownMultiplier_;
+        configurations[0] = Configuration({
+            startingCycleId:          0,
+            startingTime:             uint64(cycleStart_),
+            cycleDuration:            uint64(cycleDuration_),
+            withdrawalWindowDuration: uint64(withdrawalWindow_)
+        });
+
     }
 
 }

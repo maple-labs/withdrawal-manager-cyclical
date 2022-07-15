@@ -14,10 +14,10 @@ interface IWithdrawalManager is IMapleProxied, IWithdrawalManagerStorage {
 
     /**
      *  @dev   Emitted when the pool delegate reclaims assets that have not been withdrawn.
-     *  @param period_ Index of the period whose assets have been reclaimed.
-     *  @param assets_ Amount of assets that have been reclaimed.
+     *  @param cycleId_ Index of the cycle whose assets have been reclaimed.
+     *  @param assets_  Amount of assets that have been reclaimed.
      */
-    event AssetsReclaimed(uint256 indexed period_, uint256 assets_);
+    event AssetsReclaimed(uint256 indexed cycleId_, uint256 assets_);
 
     /**
      *  @dev   Emitted when an account withdraws assets.
@@ -27,12 +27,12 @@ interface IWithdrawalManager is IMapleProxied, IWithdrawalManagerStorage {
     event AssetsWithdrawn(address indexed account_, uint256 assets_);
 
     /**
-     *  @dev   Emitted when all shares belonging to a specific period are processed.
-     *  @param period_ Index of the period whose shares have been processed.
-     *  @param assets_ Amount of assets that have been made available for withdrawal.
-     *  @param shares_ Amount of shares that could not be redeemed due to insufficient liquidity.
+     *  @dev   Emitted when all shares belonging to a specific cycle are processed.
+     *  @param cycleId_ Index of the cycle whose shares have been processed.
+     *  @param assets_  Amount of assets that have been made available for withdrawal.
+     *  @param shares_  Amount of shares that could not be redeemed due to insufficient liquidity.
      */
-    event PeriodProcessed(uint256 indexed period_, uint256 assets_, uint256 shares_);
+    event CycleProcessed(uint256 indexed cycleId_, uint256 assets_, uint256 shares_);
 
     /**
      *  @dev   Emitted when an account locks their shares.
@@ -55,11 +55,11 @@ interface IWithdrawalManager is IMapleProxied, IWithdrawalManagerStorage {
     event WithdrawalCancelled(address indexed account_);
 
     /**
-     *  @dev   Emitted when the expected withdrawal period for an account changes.
+     *  @dev   Emitted when the expected withdrawal cycle for an account changes.
      *  @param account_ Address of the account.
-     *  @param period_  The period during which the account can perform a withdrawal.
+     *  @param cycleId_ The cycle during which the account can perform a withdrawal.
      */
-    event WithdrawalPending(address indexed account_, uint256 period_);
+    event WithdrawalPending(address indexed account_, uint256 cycleId_);
 
     /********************************/
     /*** State Changing Functions ***/
@@ -67,7 +67,7 @@ interface IWithdrawalManager is IMapleProxied, IWithdrawalManagerStorage {
 
     /**
      *  @dev    Transfers shares to the withdrawal manager.
-     *          Locking additional shares will cause the withdrawal period to be updated.
+     *          Locking additional shares will cause the withdrawal cycle to be updated.
      *          If any shares are locked and the withdrawal date is due, no additional shares can be locked until a withdrawal is performed.
      *  @param  sharesToLock_ Amount of shares to lock.
      *  @return totalShares_  Total amount of shares locked after the operation is performed.
@@ -75,28 +75,28 @@ interface IWithdrawalManager is IMapleProxied, IWithdrawalManagerStorage {
     function lockShares(uint256 sharesToLock_) external returns (uint256 totalShares_);
 
     /**
-     *  @dev Redeems as many shares in the current withdrawal period as possible.
-     *       Can only be called during a withdrawal period, and only once per withdrawal period.
-     *       If not called explicitly it will be executed automatically before the first withdrawal of a period is performed.
-     *       If no withdrawals are performed during a withdrawal period, and this function is not called, no shares will be redeemed.
-     *       All shares in the same withdrawal period are processed at the same time, using the same exchange rate.
+     *  @dev Redeems as many shares in the current withdrawal cycle as possible.
+     *       Can only be called during a withdrawal cycle, and only once per withdrawal cycle.
+     *       If not called explicitly it will be executed automatically before the first withdrawal of a cycle is performed.
+     *       If no withdrawals are performed during a withdrawal cycle, and this function is not called, no shares will be redeemed.
+     *       All shares in the same withdrawal cycle are processed at the same time, using the same exchange rate.
      */
-    function processPeriod() external;
+    function processCycle() external;
 
     /**
-     *  @dev    Reclaims all available assets from the specified withdrawal period.
-     *          Can only be called by the pool delegate, and only when the specified withdrawal period has elapsed.
-     *  @param  period_          Withdrawal period from which available assets will be reclaimed.
+     *  @dev    Reclaims all available assets from the specified withdrawal cycle.
+     *          Can only be called by the pool delegate, and only when the specified withdrawal cycle has elapsed.
+     *  @param  cycleId_         Withdrawal cycle from which available assets will be reclaimed.
      *  @return reclaimedAssets_ Amount of assets that were reclaimed.
      */
-    function reclaimAssets(uint256 period_) external returns (uint256 reclaimedAssets_);
+    function reclaimAssets(uint256 cycleId_) external returns (uint256 reclaimedAssets_);
 
     /**
      *  @dev    Withdraws assets from the pool and optionally reclaims any leftover shares.
-     *          Can only be called after shares have been locked, and only after the associated withdrawal period starts.
+     *          Can only be called after shares have been locked, and only after the associated withdrawal cycle starts.
      *          Incase of insufficient liquidity only a portion of the assets will be withdrawn.
-     *          The assets are split between all accounts proportional to their equity of all the shares in the period prior to their redemption.
-     *          In case of insufficient liquidity any amount of leftover shares can be unlocked, the remaining shares will have their withdrawal period updated.
+     *          The assets are split between all accounts proportional to their equity of all the shares in the cycle prior to their redemption.
+     *          In case of insufficient liquidity any amount of leftover shares can be unlocked, the remaining shares will have their withdrawal cycle updated.
      *  @param  sharesToReclaim_ Amount of shares the account wants to unlock.
      *  @return withdrawnAssets_ Amount of assets that were withdrawn.
      *  @return redeemedShares_  Amount of shares that were redeemed.
@@ -105,8 +105,15 @@ interface IWithdrawalManager is IMapleProxied, IWithdrawalManagerStorage {
     function redeemPosition(uint256 sharesToReclaim_) external returns (uint256 withdrawnAssets_, uint256 redeemedShares_, uint256 remainingShares_);
 
     /**
+     *  @dev   Adds a new configuration for withdrawal time intervals. If a "next" configuration is already in place, this will edit it.
+     *  @param cycleDuration_            The full cycle duration for the configuration
+     *  @param withdrawalWindowDuration_ Duration for the withdrawalWindow
+     */
+    function setNextConfiguration(uint256 cycleDuration_, uint256 withdrawalWindowDuration_) external;
+
+    /**
      *  @dev    Transfers shares from the withdrawal manager to the sender.
-     *          Unlocking shares will cause the pending withdrawal period to be updated.
+     *          Unlocking shares will cause the pending withdrawal cycle to be updated.
      *          Unlocking all shares will cause the withdrawal to be cancelled.
      *          If any shares are locked and the withdrawal date is due, no shares can be unlocked until a withdrawal is performed.
      *  @param  sharesToReclaim_ Amount of shares the account wants to unlock.
@@ -118,18 +125,28 @@ interface IWithdrawalManager is IMapleProxied, IWithdrawalManagerStorage {
     /*** View Functions ***/
     /**********************/
 
-    function availableAssets(uint256 period_) external view returns (uint256 availableAssets_);
+    function availableAssets(uint256 cycleId_) external view returns (uint256 availableAssets_);
 
-    function isProcessed(uint256 period_) external view returns (bool isProcesssed_);
+    function cycleDuration() external view returns (uint256 cycleDuration_);
 
-    function leftoverShares(uint256 period_) external view returns (uint256 leftoverShares_);
+    function getCycleId(uint256 time_) external view returns (uint256 cycleIndex_);
+
+    function getCycleBounds(uint256 cycleId_) external view returns (uint256 cycleStart_, uint256 cycleEnd_);
+
+    function getWithdrawalWindowBounds(uint256 cycleId_) external view returns (uint256 start_, uint256 end_);
+
+    function isProcessed(uint256 cycleId_) external view returns (bool isProcesssed_);
+
+    function leftoverShares(uint256 cycleId_) external view returns (uint256 leftoverShares_);
 
     function lockedShares(address account_) external view returns (uint256 lockedShares_);
 
-    function pendingWithdrawals(uint256 period_) external view returns (uint256 pendingWithdrawals_);
+    function pendingWithdrawals(uint256 cycleId_) external view returns (uint256 pendingWithdrawals_);
 
-    function totalShares(uint256 period_) external view returns (uint256 totalShares_);
+    function totalShares(uint256 cycleId_) external view returns (uint256 totalShares_);
 
-    function withdrawalPeriod(address account_) external view returns (uint256 withdrawalPeriod_);
+    function withdrawalCycleId(address account_) external view returns (uint256 withdrawalCycleId_);
+    
+    function withdrawalWindowDuration() external view returns (uint256 withdrawWindowDuration_);
 
 }

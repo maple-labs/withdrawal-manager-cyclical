@@ -3,11 +3,11 @@ pragma solidity 0.8.7;
 
 import { TestUtils } from "../modules/contract-test-utils/contracts/test.sol";
 
-import { WithdrawalManager }            from "../contracts/WithdrawalManager.sol"; 
-import { WithdrawalManagerFactory }     from "../contracts/WithdrawalManagerFactory.sol"; 
-import { WithdrawalManagerInitializer } from "../contracts/WithdrawalManagerInitializer.sol"; 
+import { WithdrawalManager }            from "../contracts/WithdrawalManager.sol";
+import { WithdrawalManagerFactory }     from "../contracts/WithdrawalManagerFactory.sol";
+import { WithdrawalManagerInitializer } from "../contracts/WithdrawalManagerInitializer.sol";
 
-import { MapleGlobalsMock, MockPool } from "./mocks/mocks.sol";
+import { MapleGlobalsMock, MockPool } from "./mocks/Mocks.sol";
 
 contract WithdrawalManagerFactoryBase is TestUtils {
 
@@ -41,14 +41,13 @@ contract CreateInstanceTest is WithdrawalManagerFactoryBase {
         address asset_ = ASSET;
         address pool_  =  address(pool);
 
-        uint256 periodStart_        = 1641164400;  // 1st Monday of 2022
-        uint256 withdrawalWindow_   = 48 hours;
-        uint256 periodDuration_     = 1 weeks;
-        uint256 cooldownMultiplier_ = 1;
+        uint256 periodStart_       = 1641164400;  // 1st Monday of 2022
+        uint256 withdrawalWindow_  = 48 hours;
+        uint256 cycleDuration_     = 1 weeks;
 
-        bytes memory arguments_ = WithdrawalManagerInitializer(initializer).encodeArguments(asset_, pool_, periodStart_, withdrawalWindow_, periodDuration_, cooldownMultiplier_);
+        bytes memory arguments_ = WithdrawalManagerInitializer(initializer).encodeArguments(asset_, pool_, periodStart_, withdrawalWindow_, cycleDuration_);
 
-        address withdrawalManagerAddress = factory.createInstance(arguments_, "SALT"); 
+        address withdrawalManagerAddress = factory.createInstance(arguments_, "SALT");
 
         assertTrue(factory.isInstance(withdrawalManagerAddress));
 
@@ -56,15 +55,13 @@ contract CreateInstanceTest is WithdrawalManagerFactoryBase {
 
         address poolManager = pool.manager();
 
-        assertEq(withdrawalManager.implementation(),   implementation);
-        assertEq(withdrawalManager.factory(),          address(factory));
-        assertEq(withdrawalManager.asset(),            ASSET);
-        assertEq(withdrawalManager.pool(),             address(pool));
-        assertEq(withdrawalManager.poolManager(),      poolManager);
-        assertEq(withdrawalManager.periodStart(),      periodStart_);
-        assertEq(withdrawalManager.withdrawalWindow(), withdrawalWindow_);
-        assertEq(withdrawalManager.periodDuration(),   periodDuration_);
-        assertEq(withdrawalManager.cooldown(),         periodDuration_ * cooldownMultiplier_);
+        assertEq(withdrawalManager.implementation(),           implementation);
+        assertEq(withdrawalManager.factory(),                  address(factory));
+        assertEq(withdrawalManager.asset(),                    ASSET);
+        assertEq(withdrawalManager.pool(),                     address(pool));
+        assertEq(withdrawalManager.poolManager(),              poolManager);
+        assertEq(withdrawalManager.cycleDuration(),            cycleDuration_);
+        assertEq(withdrawalManager.withdrawalWindowDuration(), withdrawalWindow_);
 
         assertEq(pool.allowance(address(withdrawalManager),poolManager), type(uint256).max);
     }
@@ -72,36 +69,26 @@ contract CreateInstanceTest is WithdrawalManagerFactoryBase {
 }
 
 contract CreateInstanceFailureTest is WithdrawalManagerFactoryBase {
-    
+
     address _asset = ASSET;
 
-    uint256 _periodStart        = 1641164400;  // 1st Monday of 2022
-    uint256 _withdrawalWindow   = 48 hours;
-    uint256 _periodDuration     = 1 weeks;
-    uint256 _cooldownMultiplier = 1;
+    uint256 _cycleDuration     = 1 weeks;
+    uint256 _cycleStart        = 1641164400;  // 1st Monday of 2022
+    uint256 _withdrawalWindow  = 48 hours;
 
     bytes32 _salt = "SALT";
 
     function test_createInstance_durationLargerThanFrequency() external {
         _withdrawalWindow = 2 weeks;
-        
-        bytes memory arguments_ = WithdrawalManagerInitializer(initializer).encodeArguments(_asset, address(pool), _periodStart, _withdrawalWindow, _periodDuration, _cooldownMultiplier);
 
-        vm.expectRevert("MPF:CI:FAILED");
-        factory.createInstance(arguments_, _salt);
-    }
-
-    function test_createInstance_zeroCooldown() external {
-        _cooldownMultiplier = 0;
-        
-        bytes memory arguments_ = WithdrawalManagerInitializer(initializer).encodeArguments(_asset, address(pool), _periodStart, _withdrawalWindow, _periodDuration, _cooldownMultiplier);
+        bytes memory arguments_ = WithdrawalManagerInitializer(initializer).encodeArguments(_asset, address(pool), _cycleStart, _withdrawalWindow, _cycleDuration);
 
         vm.expectRevert("MPF:CI:FAILED");
         factory.createInstance(arguments_, _salt);
     }
 
     function test_createInstance_zeroPool() external {
-        bytes memory arguments_ = WithdrawalManagerInitializer(initializer).encodeArguments(_asset, address(0), _periodStart, _withdrawalWindow, _periodDuration, _cooldownMultiplier);
+        bytes memory arguments_ = WithdrawalManagerInitializer(initializer).encodeArguments(_asset, address(0), _cycleStart, _withdrawalWindow, _cycleDuration);
 
         vm.expectRevert("MPF:CI:FAILED");
         factory.createInstance(arguments_, _salt);

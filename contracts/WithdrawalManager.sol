@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity ^0.8.7;
 
+import { console } from "../modules/contract-test-utils/contracts/test.sol";
+
 import { ERC20Helper }        from "../modules/erc20-helper/src/ERC20Helper.sol";
 import { IMapleProxyFactory } from "../modules/maple-proxy-factory/contracts/interfaces/IMapleProxyFactory.sol";
 
@@ -17,6 +19,68 @@ import { WithdrawalManagerStorage } from "./WithdrawalManagerStorage.sol";
 
 /// @title Manages the withdrawal requests of a liquidity pool.
 contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, MapleProxiedInternals {
+
+    /**
+     *    TODO: Add title
+     *    `cycleDuration` is the time of a full cycle.
+     *    |--------|--------|
+     *        C1       C2
+     *
+     *    Within a cycle, there's a withdrawal window, always at the start.
+     *    |===-----|===-----|
+     *     WW1      WW2
+     *
+     *    Once a user locks their share, they must wait at least one full cycle from the end of the cycle they locked their shares in.
+     *    Users are only able to withdraw during a withdrawal window, which starts at the beginning of each cycle.
+     *    |===-.---|===-----|===-----|
+     *         ^             ^
+     *     shares locked    earliest withdrawal time
+     *
+     *    When PD changes the configuration, it'll take effect only on the start of the third cycle,
+     *    so no user that locked their shares will have their withdrawal time affected.
+     *        C1       C2       C3             C4
+     *    |===--.--|===-----|===-----|==========----------|
+     *          ^                     ^
+     *    configuration change     new configuration kicks in
+     *
+     *    Although the configuration only changes in C4, users that lock their shares during C2 and C3, will
+     *    withdraw according to the updated schedule. Users that request on C1, will withdraw on C3 according to the old configuration.
+     */
+
+    /**************************/
+    /*** External Functions ***/
+    /**************************/
+
+    /// @dev Sets the valid parameters only for the next configuration. If there's no configuration
+    /// lined up, it'll create one, otherwise it'll adjust the parameters.
+    function setNextConfiguration(uint256 cycleDuration_, uint256 withdrawalWindowDuration_) external override {
+        require(msg.sender == _admin(),                      "WM:SNC:NOT_ADMIN");
+        require(withdrawalWindowDuration_ <= cycleDuration_, "WM:SNC:OOB");
+
+        uint256 currentConfigId_ = _currentConfigId;
+        uint256 currentCycleId_  = getCycleId(block.timestamp);
+
+        ( , uint256 endOfCurrentCycleId_ ) = getCycleBounds(currentCycleId_);
+
+        // To not affect any users that are currently withdrawing, two full cycles must elapse with no effect.
+        // TODO: Why do we need cycle ID and starting time?
+        // TODO: Investigate moving withdrawal windows to be at the end of the cycle.
+        uint256 newConfigStartingTime_ = endOfCurrentCycleId_ + 2 * cycleDuration();
+
+        // If there's no configuration lined up, incement the config count.
+        // If the current config start time is in the future, it'll be overwritten at the _currentConfigId index.
+        if (block.timestamp > configurations[_currentConfigId].startingTime) {
+            currentConfigId_ = ++_currentConfigId;
+        }
+
+        configurations[currentConfigId_] = Configuration({
+            startingCycleId:          uint64(currentCycleId_ + 3),
+            startingTime:             uint64(newConfigStartingTime_),
+            cycleDuration:            uint64(cycleDuration_),
+            withdrawalWindowDuration: uint64(withdrawalWindowDuration_)
+        });
+
+    }
 
     /***********************/
     /*** Proxy Functions ***/
@@ -52,35 +116,35 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         totalShares_ = _lockShares(msg.sender, sharesToLock_);
 
         // Get the current and next available withdrawal period.
-        ( uint256 currentPeriod, uint256 nextPeriod ) = _getWithdrawalPeriods(msg.sender);
+        ( uint256 currentCycleId, uint256 nextCycleId ) = _getWithdrawalCycleIds(msg.sender);
 
         // Update the request and all affected period states.
-        _updateRequest(msg.sender, totalShares_, nextPeriod);
-        _updatePeriodState(totalShares_ - sharesToLock_, totalShares_, currentPeriod, nextPeriod);
+        _updateRequest(msg.sender, totalShares_, nextCycleId);
+        _updateCycleState(totalShares_ - sharesToLock_, totalShares_, currentCycleId, nextCycleId);
     }
 
     // TODO: Check if ACL should be used here.
-    function processPeriod() external override {
+    function processCycle() external override {
         // Check if the current period has already been processed.
-        uint256 period = _getPeriod(block.timestamp);
-        require(!periodStates[period].isProcessed, "WM:PP:DOUBLE_PROCESS");
+        uint256 cycleId_ = getCycleId(block.timestamp);
+        require(!cycleStates[cycleId_].isProcessed, "WM:PC:DOUBLE_PROCESS");
 
-        ( , uint256 periodEnd ) = _getWithdrawalPeriodBounds(period);
-        _processPeriod(period, periodEnd);
+        ( , uint256 cycleEnd ) = getWithdrawalWindowBounds(cycleId_);
+        _processCycle(cycleId_, cycleEnd);
     }
 
-    function reclaimAssets(uint256 period_) external override returns (uint256 reclaimedAssets_) {
+    function reclaimAssets(uint256 cycleId_) external override returns (uint256 reclaimedAssets_) {
         // Reclaiming can only be performed by the pool delegate.
         require(msg.sender == IPoolLike(pool).poolDelegate(), "WM:RA:NOT_PD");
 
         // Assets can be reclaimed only after the withdrawal period has elapsed.
-        ( , uint256 periodEnd ) = _getWithdrawalPeriodBounds(period_);
-        require(block.timestamp >= periodEnd, "WM:RA:EARLY_RECLAIM");
+        ( , uint256 cycleEnd ) = getWithdrawalWindowBounds(cycleId_);
+        require(block.timestamp >= cycleEnd, "WM:RA:EARLY_RECLAIM");
 
-        WithdrawalPeriodState storage periodState = periodStates[period_];
+        WithdrawalCycleState storage cycleState = cycleStates[cycleId_];
 
         // Check if there are any assets that have not been withdrawn yet.
-        reclaimedAssets_ = periodState.availableAssets;
+        reclaimedAssets_ = cycleState.availableAssets;
         require(reclaimedAssets_ != 0, "WM:RA:ZERO_ASSETS");
 
         // Deposit all available assets back into the pool.
@@ -90,10 +154,10 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         uint256 mintedShares = IPoolLike(pool).deposit(reclaimedAssets_, address(this));
 
         // Increase the number of leftover shares by the amount that was minted.
-        periodState.leftoverShares += mintedShares;  // TODO: Check if this causes conflicts with existing leftover shares.
-        periodState.availableAssets = 0;
+        cycleState.leftoverShares += mintedShares;  // TODO: Check if this causes conflicts with existing leftover shares.
+        cycleState.availableAssets = 0;
 
-        emit AssetsReclaimed(period_, reclaimedAssets_);
+        emit AssetsReclaimed(cycleId_, reclaimedAssets_);
     }
 
     function redeemPosition(uint256 sharesToReclaim_) external override returns (uint256 withdrawnAssets_, uint256 redeemedShares_, uint256 reclaimedShares_) {
@@ -102,24 +166,25 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         require(personalShares != 0, "WM:RP:NO_REQUEST");
 
         // Get the current and next available withdrawal period.
-        ( uint256 currentPeriod, uint256 nextPeriod ) = _getWithdrawalPeriods(msg.sender);
+        // TODO: Change currentCycle
+        ( uint256 currentCycle, uint256 nextCycle ) = _getWithdrawalCycleIds(msg.sender);
 
         // Get the start and end of the current withdrawal period.
-        ( uint256 periodStart_, uint256 periodEnd ) = _getWithdrawalPeriodBounds(currentPeriod);
+        ( uint256 cycleStart_, uint256 cycleEnd ) = getWithdrawalWindowBounds(currentCycle);
 
-        require(block.timestamp >= periodStart_, "WM:RP:EARLY_WITHDRAW");
+        require(block.timestamp >= cycleStart_, "WM:RP:EARLY_WITHDRAW");
 
         // If the period has not been processed yet, do so before the withdrawal.
-        if (!periodStates[currentPeriod].isProcessed) {
-            _processPeriod(currentPeriod, periodEnd);
+        if (!cycleStates[currentCycle].isProcessed) {
+            _processCycle(currentCycle, cycleEnd);
         }
 
-        ( withdrawnAssets_, redeemedShares_, reclaimedShares_ ) = _withdrawAndUnlock(msg.sender, sharesToReclaim_, personalShares, currentPeriod);
+        ( withdrawnAssets_, redeemedShares_, reclaimedShares_ ) = _withdrawAndUnlock(msg.sender, sharesToReclaim_, personalShares, currentCycle);
 
         // Update the request and the state of all affected withdrawal periods.
         uint256 remainingShares = personalShares - redeemedShares_ - reclaimedShares_;
-        _updateRequest(msg.sender, remainingShares, nextPeriod);
-        _updatePeriodState(personalShares, remainingShares, currentPeriod, nextPeriod);
+        _updateRequest(msg.sender, remainingShares, nextCycle);
+        _updateCycleState(personalShares, remainingShares, currentCycle, nextCycle);
     }
 
     function unlockShares(uint256 sharesToReclaim_) external override returns (uint256 remainingShares_) {
@@ -127,16 +192,20 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         remainingShares_ = _unlockShares(msg.sender, sharesToReclaim_);
 
         // Get the current and next available withdrawal period.
-        ( uint256 currentPeriod, uint256 nextPeriod ) = _getWithdrawalPeriods(msg.sender);
+        ( uint256 currentCycle, uint256 nextCycle ) = _getWithdrawalCycleIds(msg.sender);
 
         // Update the request and all affected period states.
-        _updateRequest(msg.sender, remainingShares_, nextPeriod);
-        _updatePeriodState(remainingShares_ + sharesToReclaim_, remainingShares_, currentPeriod, nextPeriod);
+        _updateRequest(msg.sender, remainingShares_, nextCycle);
+        _updateCycleState(remainingShares_ + sharesToReclaim_, remainingShares_, currentCycle, nextCycle);
     }
 
     /**************************/
     /*** Internal Functions ***/
     /**************************/
+
+    function _admin() internal view returns (address admin_) {
+        admin_ = IPoolManagerLike(poolManager).admin();
+    }
 
     function _lockShares(address account_, uint256 sharesToLock_) internal returns (uint256 totalShares_) {
         require(sharesToLock_ != 0, "WM:LS:ZERO_AMOUNT");
@@ -154,44 +223,44 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         emit SharesLocked(account_, sharesToLock_);
     }
 
-    function _movePeriodShares(uint256 period_, uint256 nextPeriod_, uint256 currentShares_, uint256 nextShares_) internal {
+    function _moveCycleShares(uint256 cycleId_, uint256 nextCycleId_, uint256 currentShares_, uint256 nextShares_) internal {
         // If the account already has locked shares, remove them from the current period.
         if (currentShares_ != 0) {
-            periodStates[period_].totalShares        -= currentShares_;
-            periodStates[period_].pendingWithdrawals -= 1;
+            cycleStates[cycleId_].totalShares        -= currentShares_;
+            cycleStates[cycleId_].pendingWithdrawals -= 1;
         }
 
         // Add shares into the next period if necessary.
         if (nextShares_ != 0) {
-            periodStates[nextPeriod_].totalShares        += nextShares_;
-            periodStates[nextPeriod_].pendingWithdrawals += 1;
+            cycleStates[nextCycleId_].totalShares        += nextShares_;
+            cycleStates[nextCycleId_].pendingWithdrawals += 1;
         }
     }
 
-    function _processPeriod(uint256 period_, uint256 periodEnd) internal {
-        WithdrawalPeriodState storage periodState = periodStates[period_];
+    function _processCycle(uint256 cycleId_, uint256 cycleEnd) internal {
+        WithdrawalCycleState storage cycleState = cycleStates[cycleId_];
 
         // If the withdrawal period elapsed, perform no redemption of shares.
-        if (block.timestamp >= periodEnd) {
-            periodState.leftoverShares = periodState.totalShares;
-            periodState.isProcessed = true;
+        if (block.timestamp >= cycleEnd) {
+            cycleState.leftoverShares = cycleState.totalShares;
+            cycleState.isProcessed    = true;
             return;
         }
 
         uint256 totalShares_     = IPoolLike(pool).maxRedeem(address(this));
-        uint256 periodShares     = periodState.totalShares;
-        uint256 redeemableShares = totalShares_ > periodShares ? periodShares : totalShares_;
+        uint256 cycleShares      = cycleState.totalShares;
+        uint256 redeemableShares = totalShares_ > cycleShares ? cycleShares : totalShares_;
 
         // Calculate amount of available assets and leftover shares.
         uint256 availableAssets_ = redeemableShares > 0 ? IPoolManagerLike(poolManager).redeem(redeemableShares, address(this), address(this)) : 0;
-        uint256 leftoverShares_  = periodShares - redeemableShares;
+        uint256 leftoverShares_  = cycleShares - redeemableShares;
 
         // Update the withdrawal period state.
-        periodState.availableAssets = availableAssets_;
-        periodState.leftoverShares  = leftoverShares_;
-        periodState.isProcessed     = true;
+        cycleState.availableAssets = availableAssets_;
+        cycleState.leftoverShares  = leftoverShares_;
+        cycleState.isProcessed     = true;
 
-        emit PeriodProcessed(period_, availableAssets_, leftoverShares_);
+        emit CycleProcessed(cycleId_, availableAssets_, leftoverShares_);
     }
 
     function _unlockShares(address account_, uint256 sharesToReclaim_) internal returns (uint256 remainingShares_) {
@@ -210,38 +279,38 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     }
 
     // TODO: Investigate using int256 for updating the period state more easily.
-    function _updatePeriodShares(uint256 period_, uint256 currentShares_, uint256 nextShares_) internal {
+    function _updateCycleShares(uint256 cycleId_, uint256 currentShares_, uint256 nextShares_) internal {
         // If additional shares were locked, increase the amount of total shares locked in the period.
         if (nextShares_ > currentShares_) {
-            periodStates[period_].totalShares += nextShares_ - currentShares_;
+            cycleStates[cycleId_].totalShares += nextShares_ - currentShares_;
         }
         // If shares were unlocked, decrease the amount of total shares locked in the period.
         else {
-            periodStates[period_].totalShares -= currentShares_ - nextShares_;
+            cycleStates[cycleId_].totalShares -= currentShares_ - nextShares_;
         }
 
         // If the account has no remaining shares, decrease the number of withdrawal requests.
         if (nextShares_ == 0) {
-            periodStates[period_].pendingWithdrawals -= 1;
+            cycleStates[cycleId_].pendingWithdrawals -= 1;
         }
     }
 
-    function _updatePeriodState(uint256 currentShares_, uint256 nextShares_, uint256 currentPeriod_, uint256 nextPeriod_) internal {
+    function _updateCycleState(uint256 currentShares_, uint256 nextShares_, uint256 currentCycleId_, uint256 nextCycleId_) internal {
         // If shares do not need to be moved across withdrawal periods, just update the amount of shares.
-        if (currentPeriod_ == nextPeriod_) {
-            _updatePeriodShares(nextPeriod_, currentShares_, nextShares_);
+        if (currentCycleId_ == nextCycleId_) {
+            _updateCycleShares(nextCycleId_, currentShares_, nextShares_);
         }
         // If the next period is different, move all the shares from the current period to the new one.
         else {
-            _movePeriodShares(currentPeriod_, nextPeriod_, currentShares_, nextShares_);
+            _moveCycleShares(currentCycleId_, nextCycleId_, currentShares_, nextShares_);
         }
     }
 
-    function _updateRequest(address account_, uint256 shares_, uint256 period_) internal {
+    function _updateRequest(address account_, uint256 shares_, uint256 cycleId_) internal {
         // If any shares are remaining, perform the update.
         if (shares_ != 0) {
-            requests[account_] = WithdrawalRequest({ lockedShares: shares_, withdrawalPeriod: period_ });
-            emit WithdrawalPending(account_, period_);
+            requests[account_] = WithdrawalRequest({ lockedShares: shares_, withdrawalCycleId: cycleId_ });
+            emit WithdrawalPending(account_, cycleId_);
         }
         // Otherwise, clean up the request.
         else {
@@ -254,16 +323,16 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         address account_,
         uint256 sharesToReclaim_,
         uint256 personalShares_,
-        uint256 period_
+        uint256 cycleId_
     )
         internal returns (uint256 withdrawnAssets_, uint256 redeemedShares_, uint256 reclaimedShares_)
     {
         // Cache variables.
-        WithdrawalPeriodState storage periodState = periodStates[period_];
-        uint256 activeShares     = periodState.totalShares;
-        uint256 availableAssets_ = periodState.availableAssets;
-        uint256 leftoverShares_  = periodState.leftoverShares;
-        uint256 accountCount     = periodState.pendingWithdrawals;
+        WithdrawalCycleState storage cycleState = cycleStates[cycleId_];
+        uint256 activeShares     = cycleState.totalShares;
+        uint256 availableAssets_ = cycleState.availableAssets;
+        uint256 leftoverShares_  = cycleState.leftoverShares;
+        uint256 accountCount     = cycleState.pendingWithdrawals;
 
         // [personalShares / activeShares] is the percentage of the assets / shares in the withdrawal period that the account is entitled to claim.
         // Multiplying this amount by the amount of leftover shares and available assets calculates his "fair share".
@@ -271,8 +340,8 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         uint256 reclaimableShares = accountCount > 1 ? leftoverShares_ * personalShares_ / activeShares : leftoverShares_;
 
         // Remove the entitled assets and shares from the withdrawal period.
-        periodState.availableAssets -= withdrawnAssets_;
-        periodState.leftoverShares  -= reclaimableShares;
+        cycleState.availableAssets -= withdrawnAssets_;
+        cycleState.leftoverShares  -= reclaimableShares;
 
         // Calculate how many shares have been redeemed, and how many shares will be reclaimed.
         redeemedShares_  = personalShares_ - reclaimableShares;
@@ -297,23 +366,49 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
 
     // TODO: Use timestamps instead of periods for measuring time.
 
-    function _getPeriod(uint256 time_) internal view returns (uint256 period_) {
-        period_ = time_ <= periodStart ? 0 : (time_ - periodStart) / periodDuration;
+    /// @dev Returns the valid configuration for a given timestamp
+    function _getConfigIdAtTimestamp(uint256 timestamp_) internal view returns (uint256 configId_) {
+        configId_ = _currentConfigId;
+        while (true) {
+            Configuration memory config_ = configurations[configId_];
+
+            // If timestamp is before start of config, decrement configId.
+            if (timestamp_ < config_.startingTime) {
+                // TODO revisit to check if return 0 or revert.
+                if (configId_ == 0) return 0;
+                configId_--;
+                continue;
+            }
+
+           return configId_;
+        }
     }
 
-    function _getWithdrawalPeriodBounds(uint256 period_) internal view returns (uint256 start_, uint256 end_) {
-        start_ = periodStart + period_ * periodDuration;
-        end_   = start_ + withdrawalWindow;
+    function _getConfigIdAtCycleId(uint256 cycleId_) internal view returns (uint256 configId_) {
+        configId_ = _currentConfigId;
+        while (true) {
+            Configuration memory config_ = configurations[configId_];
+
+            if (cycleId_ < config_.startingCycleId) {
+
+                // TODO revisit to check if return 0 or revert.
+                if (configId_ == 0) return 0;
+                configId_--;
+                continue;
+            }
+
+            return configId_;
+        }
     }
 
-    function _getWithdrawalPeriods(address account_) internal view returns (uint256 currentPeriod_, uint256 nextPeriod_) {
+    function _getWithdrawalCycleIds(address account_) internal view returns (uint256 currentCycleId_, uint256 nextCycleId_) {
         // Fetch the current withdrawal period for the account, and calculate the next available one.
-        currentPeriod_ = requests[account_].withdrawalPeriod;
-        nextPeriod_    = _getPeriod(block.timestamp + cooldown);
+        currentCycleId_ = requests[account_].withdrawalCycleId;
+        nextCycleId_    = getCycleId(block.timestamp) + 2;      // Need to wait for the current cycle to finish + 1 full cycle, hence the 2 is used.
     }
 
     function _isWithinCooldown(address account_) internal view returns (bool isWithinCooldown_) {
-        isWithinCooldown_ = _getPeriod(block.timestamp) < requests[account_].withdrawalPeriod;
+        isWithinCooldown_ = getCycleId(block.timestamp) < requests[account_].withdrawalCycleId;
     }
 
     /**********************/
@@ -323,40 +418,67 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     // TODO: Check if all these view functions are needed, or can return structs directly.
     // TODO: Discuss what naming convention to use for fixing duplicate names of local variabes and function names.
 
-    function availableAssets(uint256 period_) external override view returns (uint256 availableAssets_) {
-        availableAssets_ = periodStates[period_].availableAssets;
+    function availableAssets(uint256 cycleId_) external override view returns (uint256 availableAssets_) {
+        availableAssets_ = cycleStates[cycleId_].availableAssets;
+    }
+
+    function cycleDuration() public view override returns (uint256 periodDuration_) {
+        periodDuration_ = configurations[_getConfigIdAtTimestamp(block.timestamp)].cycleDuration;
     }
 
     function factory() external view override returns (address factory_) {
         return _factory();
     }
 
+    function getCycleId(uint256 timestamp_) public view override returns (uint256 cycleId_) {
+        Configuration memory config_ = configurations[_getConfigIdAtTimestamp(timestamp_)];
+
+        cycleId_ = config_.startingCycleId + ((timestamp_ - config_.startingTime) / config_.cycleDuration);
+    }
+
+    function getCycleBounds(uint256 cycleId_) public view override returns (uint256 start_, uint256 end_) {
+        Configuration memory config_ = configurations[_getConfigIdAtCycleId(cycleId_)];
+
+        start_ = config_.startingTime + (cycleId_ - config_.startingCycleId) * config_.cycleDuration;
+        end_   = start_ + config_.cycleDuration;
+    }
+
+    function getWithdrawalWindowBounds(uint256 cycleId_) public view override returns (uint256 start_, uint256 end_) {
+        Configuration memory config_ = configurations[_getConfigIdAtCycleId(cycleId_)];
+
+        start_ = config_.startingTime + (cycleId_ - config_.startingCycleId) * config_.cycleDuration;
+        end_   = start_ + config_.withdrawalWindowDuration;
+    }
+
     function implementation() external view override returns (address implementation_) {
         return _implementation();
     }
 
-    function isProcessed(uint256 period_) external override view returns (bool isProcessed_) {
-        isProcessed_ = periodStates[period_].isProcessed;
+    function isProcessed(uint256 cycleId_) external override view returns (bool isProcessed_) {
+        isProcessed_ = cycleStates[cycleId_].isProcessed;
     }
 
-    function leftoverShares(uint256 period_) external override view returns (uint256 leftoverShares_) {
-        leftoverShares_ = periodStates[period_].leftoverShares;
+    function leftoverShares(uint256 cycleId_) external override view returns (uint256 leftoverShares_) {
+        leftoverShares_ = cycleStates[cycleId_].leftoverShares;
     }
 
     function lockedShares(address account_) external override view returns (uint256 lockedShares_) {
         lockedShares_ = requests[account_].lockedShares;
     }
 
-    function pendingWithdrawals(uint256 period_) external override view returns (uint256 pendingWithdrawals_) {
-        pendingWithdrawals_ = periodStates[period_].pendingWithdrawals;
+    function pendingWithdrawals(uint256 cycleId_) external override view returns (uint256 pendingWithdrawals_) {
+        pendingWithdrawals_ = cycleStates[cycleId_].pendingWithdrawals;
     }
 
-    function totalShares(uint256 period_) external override view returns (uint256 totalShares_) {
-        totalShares_ = periodStates[period_].totalShares;
+    function totalShares(uint256 cycleId_) external override view returns (uint256 totalShares_) {
+        totalShares_ = cycleStates[cycleId_].totalShares;
     }
 
-    function withdrawalPeriod(address account_) external override view returns (uint256 withdrawalPeriod_) {
-        withdrawalPeriod_ = requests[account_].withdrawalPeriod;
+    function withdrawalCycleId(address account_) external override view returns (uint256 withdrawalCycleId_) {
+        withdrawalCycleId_ = requests[account_].withdrawalCycleId;
     }
 
+    function withdrawalWindowDuration() external override view returns (uint256 withdrawalWindow_) {
+        withdrawalWindow_ =  configurations[_getConfigIdAtTimestamp(block.timestamp)].withdrawalWindowDuration;
+    }
 }

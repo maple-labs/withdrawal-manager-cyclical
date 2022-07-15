@@ -21,6 +21,8 @@ interface IPoolLike {
 
 interface IPoolManagerLike {
 
+    function admin() external view returns (address admin_);
+
     function redeem(uint256 shares_, address receiver_, address owner_) external returns (uint256 assets_);
 
 }
