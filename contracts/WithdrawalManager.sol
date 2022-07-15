@@ -481,4 +481,5 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     function withdrawalWindowDuration() external override view returns (uint256 withdrawalWindow_) {
         withdrawalWindow_ =  configurations[_getConfigIdAtTimestamp(block.timestamp)].withdrawalWindowDuration;
     }
+
 }
