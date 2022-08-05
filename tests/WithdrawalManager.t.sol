@@ -1,1618 +1,829 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-pragma solidity ^0.8.7;
+pragma solidity 0.8.7;
 
-import { Address, console, TestUtils } from "../modules/contract-test-utils/contracts/test.sol";
-import { MockERC20 }                   from "../modules/erc20/contracts/test/mocks/MockERC20.sol";
-
-import { MockPool, MockPoolManager, MapleGlobalsMock } from "./mocks/Mocks.sol";
-
-import { LP }           from "./accounts/LP.sol";
-import { PoolDelegate } from "./accounts/PoolDelegate.sol";
-
-import { IWithdrawalManager } from "../contracts/interfaces/IWithdrawalManager.sol";
+import { Address, TestUtils } from "../modules/contract-test-utils/contracts/test.sol";
+import { MockERC20 }          from "../modules/erc20/contracts/test/mocks/MockERC20.sol";
 
 import { WithdrawalManager }            from "../contracts/WithdrawalManager.sol";
 import { WithdrawalManagerFactory }     from "../contracts/WithdrawalManagerFactory.sol";
 import { WithdrawalManagerInitializer } from "../contracts/WithdrawalManagerInitializer.sol";
 
+import { MockGlobals, MockPool, MockWithdrawalManagerMigrator } from "./mocks/Mocks.sol";
+
+// TODO: Add test cases with multiple lp's withdrawing within the same window.
+// TODO: Add test cases when exchange rate is below one.
+// TODO: Add test cases for when configuration is updated before / during / after the withdrawal request / execution.
+
 contract WithdrawalManagerTestBase is TestUtils {
 
-    address ADMIN = address(new Address());
+    address admin;
+    address governor;
+    address implementation;
+    address initializer;
+    address lp;
+    address wm;
 
-    MockERC20          internal _asset;
-    MockPool           internal _pool;
-    PoolDelegate       internal _poolDelegate;      // TODO This suite is still using accounts. Move to prank
-    IWithdrawalManager internal _withdrawalManager;
+    uint256 start;
 
-    uint256 constant COOLDOWN          = 2 weeks;
-    uint256 constant DURATION          = 1 weeks;
-    uint256 constant START             = 1641164400;  // 1st Monday of 2022
-    uint256 constant WITHDRAWAL_WINDOW = 48 hours;
+    MockERC20   asset;
+    MockGlobals globals;
+    MockPool    pool;
 
-    uint256 constant MAX_ASSETS = 1e36;
-    uint256 constant MAX_DELAY  = 52 weeks;
-    uint256 constant MAX_SHARES = 1e40;
+    WithdrawalManagerFactory factory;
+
+    WithdrawalManager withdrawalManager;
 
     function setUp() public virtual {
-        MapleGlobalsMock             globals        = new MapleGlobalsMock(address(this), address(0), 0, 0);
-        WithdrawalManagerFactory     factory        = new WithdrawalManagerFactory(address(globals));
-        WithdrawalManagerInitializer initializer    = new WithdrawalManagerInitializer();
-        WithdrawalManager            implementation = new WithdrawalManager();
+        admin          = address(new Address());
+        governor       = address(new Address());
+        implementation = address(new WithdrawalManager());
+        initializer    = address(new WithdrawalManagerInitializer());
+        lp             = address(new Address());
 
-        factory.registerImplementation(1, address(implementation), address(initializer));
+        start = 1641164400;
+
+        // Create all mocks.
+        globals = new MockGlobals(address(governor));
+        asset   = new MockERC20("Wrapped Ether", "WETH", 18);
+        pool    = new MockPool("Maple Pool", "MP-WETH", 18, address(asset), admin);
+
+        // Set the exchange rate to 2 assets per share.
+        pool.__setSharePrice(2);
+
+        // Create factory and register implementation.
+        vm.startPrank(governor);
+        factory = new WithdrawalManagerFactory(address(globals));
+        factory.registerImplementation(1, implementation, initializer);
         factory.setDefaultVersion(1);
+        vm.stopPrank();
 
-        _asset        = new MockERC20("MockAsset", "MA", 18);
-        _poolDelegate = new PoolDelegate();
-        _pool         = new MockPool("MockPool", "MP", 18, address(_asset), address(_poolDelegate));
+        // Warp to the starting time.
+        vm.warp(start);
 
-        _withdrawalManager = IWithdrawalManager(factory.createInstance(
-            initializer.encodeArguments(
-                address(_asset),
-                address(_pool),
-                START,
-                WITHDRAWAL_WINDOW,
-                DURATION
-            ),
-            "0"
-        ));
+        // Create the withdrawal manager instance.
+        withdrawalManager = WithdrawalManager(factory.createInstance({
+            arguments_: abi.encode(address(pool), 1 weeks, 2 days),
+            salt_:      "SALT"
+        }));
 
-        // Set admin at pool manager
-        MockPoolManager(_pool.manager()).setAdmin(ADMIN);
-
-        // TODO: Increase the exchange rate to more than 1.
-
-        vm.warp(START);
+        wm = address(withdrawalManager);
     }
 
     /*************************/
     /*** Utility Functions ***/
     /*************************/
 
-    function _initializeLender(uint256 assetsToDeposit_, uint256 minimumAssets_, uint256 maximumAssets_) internal returns (LP lp_, uint256 assets_, uint256 shares_) {
-        lp_     = new LP();
-        assets_  = constrictToRange(assetsToDeposit_, minimumAssets_, maximumAssets_);
-        shares_ = _mintAndDepositAssets(lp_, assets_);
-    }
+    function assertConfig(
+        uint256 configurationId,
+        uint256 initialCycleId,
+        uint256 initialCycleTime,
+        uint256 cycleDuration,
+        uint256 windowDuration
+    )
+        internal
+    {
+        (
+            uint64 initialCycleId_,
+            uint64 initialCycleTime_,
+            uint64 cycleDuration_,
+            uint64 windowDuration_
+        ) = withdrawalManager.cycleConfigs(configurationId);
 
-    function _initializeLender(uint256 assetsToDeposit_) internal returns (LP lp_) {
-        lp_ = new LP();
-        _mintAndDepositAssets(lp_, assetsToDeposit_);
-    }
-
-    function _lockShares(LP lp_, uint256 shares_) internal {
-        lp_.erc20_approve(address(_pool), address(_withdrawalManager), shares_);
-        lp_.withdrawalManager_lockShares(address(_withdrawalManager), shares_);
-    }
-
-    function _mintAndDepositAssets(LP lp_, uint256 assets_) internal returns (uint256 shares_) {
-        _asset.mint(address(lp_), assets_);
-
-        lp_.erc20_approve(address(_asset), address(_pool), assets_);
-        lp_.pool_deposit(address(_pool), assets_);
-
-        shares_ = _pool.balanceOf(address(lp_));
+        assertEq(initialCycleId_,   initialCycleId);
+        assertEq(initialCycleTime_, initialCycleTime);
+        assertEq(cycleDuration_,    cycleDuration);
+        assertEq(windowDuration_,   windowDuration);
     }
 
 }
 
-contract LockSharesTest is WithdrawalManagerTestBase {
+contract MigrateTests is WithdrawalManagerTestBase {
 
-    function test_lockShares_once(uint256 assetsToDeposit_) external {
-        ( LP lp, , uint256 shares ) = _initializeLender(assetsToDeposit_, 1, MAX_ASSETS);
+    address migrator;
 
-        assertEq(_pool.balanceOf(address(lp)),                 shares);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 0);
+    function setUp() public override {
+        super.setUp();
 
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 0);
-
-        assertEq(_withdrawalManager.totalShares(2),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 0);
-
-        _lockShares(lp, shares);
-
-        assertEq(_pool.balanceOf(address(lp)),                 0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), shares);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     shares);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        shares);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
+        migrator = address(new MockWithdrawalManagerMigrator());
     }
 
-    function test_lockShares_multipleTimesWithinSamePeriod(uint256 assetsToDeposit_) external {
-        ( LP lp, , uint256 shares ) = _initializeLender(assetsToDeposit_, 2, MAX_ASSETS);
-
-        assertEq(_pool.balanceOf(address(lp)),                 shares);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 0);
-
-        assertEq(_withdrawalManager.totalShares(2),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 0);
-
-        _lockShares(lp, 1);
-
-        assertEq(_pool.balanceOf(address(lp)),                 shares - 1);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 1);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     1);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        1);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
-
-        _lockShares(lp, shares - 1);
-
-        assertEq(_pool.balanceOf(address(lp)),                 0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), shares);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     shares);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        shares);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
+    function test_migrate_notFactory() external {
+        vm.expectRevert("WM:M:NOT_FACTORY");
+        withdrawalManager.migrate(migrator, "");
     }
 
-    function test_lockShares_overMultiplePeriods(uint256 assetsToDeposit_) external {
-        ( LP lp, , uint256 shares ) = _initializeLender(assetsToDeposit_, 2, MAX_ASSETS);
+    function test_migrate_internalFailure() external {
+        vm.prank(address(factory));
+        vm.expectRevert("WM:M:FAILED");
+        withdrawalManager.migrate(migrator, "");
+    }
 
-        assertEq(_pool.balanceOf(address(lp)),                 shares);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 0);
+    function test_migrate_success() external {
+        assertEq(withdrawalManager.pool(), address(pool));
 
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 0);
+        vm.prank(address(factory));
+        withdrawalManager.migrate(migrator, abi.encode(address(0)));
 
-        assertEq(_withdrawalManager.totalShares(2),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 0);
-
-        _lockShares(lp, 1);
-
-        assertEq(_pool.balanceOf(address(lp)),                 shares - 1);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 1);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     1);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        1);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
-
-        vm.warp(START + DURATION);
-
-        _lockShares(lp, shares - 1);
-
-        assertEq(_pool.balanceOf(address(lp)),                 0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), shares);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     shares);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 3);
-
-        assertEq(_withdrawalManager.totalShares(2),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 0);
-
-        assertEq(_withdrawalManager.totalShares(3),        shares);
-        assertEq(_withdrawalManager.pendingWithdrawals(3), 1);
+        assertEq(withdrawalManager.pool(), address(0));
     }
 
 }
 
-contract LockSharesFailureTest is WithdrawalManagerTestBase {
+contract SetImplementationTests is WithdrawalManagerTestBase {
 
-    function test_lockShares_failWithZeroAmount() external {
-        LP lp = new LP();
-        _mintAndDepositAssets(lp, 1);
+    address newImplementation;
 
-        lp.erc20_approve(address(_pool), address(_withdrawalManager), 1);
-        vm.expectRevert("WM:LS:ZERO_AMOUNT");
-        lp.withdrawalManager_lockShares(address(_withdrawalManager), 0);
+    function setUp() public override {
+        super.setUp();
 
-        lp.withdrawalManager_lockShares(address(_withdrawalManager), 1);
+        newImplementation = address(new WithdrawalManager());
     }
 
-    function test_lockShares_failWithWithdrawalDue(uint256 assetsToDeposit_) external {
-        ( LP lp, , uint256 shares ) = _initializeLender(assetsToDeposit_, 2, MAX_ASSETS);
-
-        _lockShares(lp, shares - 1);
-
-        vm.warp(START + COOLDOWN);
-
-        lp.erc20_approve(address(_pool), address(_withdrawalManager), 1);
-        vm.expectRevert("WM:LS:WITHDRAW_DUE");
-        lp.withdrawalManager_lockShares(address(_withdrawalManager), 1);
-
-        vm.warp(START + COOLDOWN - 1);
-
-        lp.withdrawalManager_lockShares(address(_withdrawalManager), 1);
+    function test_setImplementation_notFactory() external {
+        vm.expectRevert("WM:SI:NOT_FACTORY");
+        withdrawalManager.setImplementation(newImplementation);
     }
 
-    function test_lockShares_failWithInsufficientApprove(uint256 assetsToDeposit_) external {
-        ( LP lp, , uint256 shares ) = _initializeLender(assetsToDeposit_, 1, MAX_ASSETS);
+    function test_setImplementation_success() external {
+        assertEq(withdrawalManager.implementation(), implementation);
 
-        lp.erc20_approve(address(_pool), address(_withdrawalManager), shares - 1);
-        vm.expectRevert("WM:LS:TRANSFER_FAIL");
-        lp.withdrawalManager_lockShares(address(_withdrawalManager), shares);
+        vm.prank(withdrawalManager.factory());
+        withdrawalManager.setImplementation(newImplementation);
 
-        lp.erc20_approve(address(_pool), address(_withdrawalManager), shares);
-        lp.withdrawalManager_lockShares(address(_withdrawalManager), shares);
-    }
-
-    function test_lockShares_failWithInsufficientBalance(uint256 assetsToDeposit_) external {
-        ( LP lp, , uint256 shares ) = _initializeLender(assetsToDeposit_, 1, MAX_ASSETS);
-
-        lp.erc20_approve(address(_pool), address(_withdrawalManager), shares + 1);
-        vm.expectRevert("WM:LS:TRANSFER_FAIL");
-        lp.withdrawalManager_lockShares(address(_withdrawalManager), shares + 1);
-
-        lp.withdrawalManager_lockShares(address(_withdrawalManager), shares);
+        assertEq(withdrawalManager.implementation(), newImplementation);
     }
 
 }
 
-contract UnlockSharesTests is WithdrawalManagerTestBase {
+contract UpgradeTests is WithdrawalManagerTestBase {
 
-    function test_unlockShares_withinSamePeriod(uint256 assetsToDeposit_, uint256 sharesToUnlock_) external {
-        ( LP lp, , uint256 sharesToLock ) = _initializeLender(assetsToDeposit_, 1, MAX_ASSETS);
-        sharesToUnlock_ = constrictToRange(sharesToUnlock_, 1, sharesToLock);
+    address migrator;
+    address newImplementation;
 
-        _lockShares(lp, sharesToLock);
+    function setUp() public override {
+        super.setUp();
 
-        assertEq(_pool.balanceOf(address(lp)),                 0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), sharesToLock);
+        migrator          = address(new MockWithdrawalManagerMigrator());
+        newImplementation = address(new WithdrawalManager());
 
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     sharesToLock);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        sharesToLock);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
-
-        lp.withdrawalManager_unlockShares(address(_withdrawalManager), sharesToUnlock_);
-
-        assertEq(_pool.balanceOf(address(lp)),                 sharesToUnlock_);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), sharesToLock - sharesToUnlock_);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     sharesToLock - sharesToUnlock_);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), sharesToUnlock_ == sharesToLock ? 0 : 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        sharesToLock - sharesToUnlock_);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), sharesToUnlock_ == sharesToLock ? 0 : 1);
-    }
-
-    function test_unlockShares_inFollowingPeriod(uint256 assetsToDeposit_, uint256 sharesToUnlock_) external {
-        ( LP lp, , uint256 sharesToLock ) = _initializeLender(assetsToDeposit_, 1, MAX_ASSETS);
-        sharesToUnlock_ = constrictToRange(sharesToUnlock_, 1, sharesToLock);
-
-        _lockShares(lp, sharesToLock);
-
-        assertEq(_pool.balanceOf(address(lp)),                 0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), sharesToLock);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     sharesToLock);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        sharesToLock);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
-
-        vm.warp(START + DURATION);
-
-        lp.withdrawalManager_unlockShares(address(_withdrawalManager), sharesToUnlock_);
-
-        assertEq(_pool.balanceOf(address(lp)),                 sharesToUnlock_);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), sharesToLock - sharesToUnlock_);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     sharesToLock - sharesToUnlock_);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), sharesToUnlock_ == sharesToLock ? 0 : 3);
-
-        assertEq(_withdrawalManager.totalShares(2),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 0);
-
-        assertEq(_withdrawalManager.totalShares(3),        sharesToLock - sharesToUnlock_);
-        assertEq(_withdrawalManager.pendingWithdrawals(3), sharesToUnlock_ == sharesToLock ? 0 : 1);
-    }
-}
-
-
-contract UnlockSharesFailureTests is WithdrawalManagerTestBase {
-
-    function test_unlockShares_failWithZeroAmount() external {
-        LP lp = new LP();
-        _mintAndDepositAssets(lp, 1);
-
-        lp.erc20_approve(address(_pool), address(_withdrawalManager), 1);
-        lp.withdrawalManager_lockShares(address(_withdrawalManager), 1);
-
-
-        vm.expectRevert("WM:US:ZERO_AMOUNT");
-        lp.withdrawalManager_unlockShares(address(_withdrawalManager), 0);
-
-        lp.withdrawalManager_unlockShares(address(_withdrawalManager), 1);
-    }
-
-    function test_unlockShares_failWithWithdrawalDue(uint256 assetsToDeposit_) external {
-        ( LP lp, , uint256 shares ) = _initializeLender(assetsToDeposit_, 1, MAX_ASSETS);
-
-        _lockShares(lp, shares);
-
-        vm.warp(START + COOLDOWN);
-
-        vm.expectRevert("WM:US:WITHDRAW_DUE");
-        lp.withdrawalManager_unlockShares(address(_withdrawalManager), shares);
-
-        vm.warp(START + COOLDOWN - 1);
-
-        lp.withdrawalManager_unlockShares(address(_withdrawalManager), shares);
-    }
-
-    function test_unlockShares_failWithInsufficientBalance(uint256 assetsToDeposit_) external {
-        ( LP lp, , uint256 shares ) = _initializeLender(assetsToDeposit_, 1, MAX_ASSETS);
-
-        _lockShares(lp, shares);
-
-        vm.expectRevert("WM:US:TRANSFER_FAIL");
-        lp.withdrawalManager_unlockShares(address(_withdrawalManager), shares + 1);
-
-        lp.withdrawalManager_unlockShares(address(_withdrawalManager), shares);
-    }
-
-}
-
-contract ProcessPeriodTests is WithdrawalManagerTestBase {
-
-    function test_processPeriod_success(uint256 assetsToDeposit_) external {
-        ( LP lp, uint256 assets, uint256 shares ) = _initializeLender(assetsToDeposit_, 1, MAX_ASSETS);
-
-        _lockShares(lp, shares);
-
-        assertEq(_pool.balanceOf(address(_withdrawalManager)),  shares);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.totalShares(2),        shares);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
-        assertEq(_withdrawalManager.availableAssets(2),    0);
-        assertEq(_withdrawalManager.leftoverShares(2),     0);
-        assertTrue(!_withdrawalManager.isProcessed(2));
-
-        vm.warp(START + COOLDOWN);
-
-        _poolDelegate.withdrawalManager_processPeriod(address(_withdrawalManager));
-
-        assertEq(_pool.balanceOf(address(_withdrawalManager)),  0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), assets);
-
-        assertEq(_withdrawalManager.totalShares(2),        shares);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
-        assertEq(_withdrawalManager.availableAssets(2),    assets);
-        assertEq(_withdrawalManager.leftoverShares(2),     0);
-        assertTrue(_withdrawalManager.isProcessed(2));
-    }
-
-}
-
-contract ProcessPeriodFailureTests is WithdrawalManagerTestBase {
-
-    function test_processPeriod_doubleProcess() external {
-        _poolDelegate.withdrawalManager_processPeriod(address(_withdrawalManager));
-
-        vm.expectRevert("WM:PC:DOUBLE_PROCESS");
-        _poolDelegate.withdrawalManager_processPeriod(address(_withdrawalManager));
-    }
-
-}
-
-contract RedeemPositionTests is WithdrawalManagerTestBase {
-
-    function test_redeemPosition_lateWithdraw(uint256 assetsToDeposit_) external {
-        ( LP lp, , uint256 shares ) = _initializeLender(assetsToDeposit_, 1, MAX_ASSETS);
-
-        _lockShares(lp, shares);
-
-        assertEq(_pool.balanceOf(address(lp)),                 0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), shares);
-
-        assertEq(_asset.balanceOf(address(lp)),                 0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     shares);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        shares);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
-        assertTrue(!_withdrawalManager.isProcessed(2));
-
-        vm.warp(START + COOLDOWN + WITHDRAWAL_WINDOW);
-
-        lp.withdrawalManager_redeemPosition(address(_withdrawalManager), shares);
-
-        assertEq(_pool.balanceOf(address(lp)),                 shares);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_asset.balanceOf(address(lp)),                 0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),      0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 0);
-
-        assertEq(_withdrawalManager.totalShares(2),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 0);
-        assertTrue(_withdrawalManager.isProcessed(2));
-    }
-
-    function test_redeemPosition_lateWithdrawWithRetry(uint256 assetsToDeposit_) external {
-        ( LP lp, uint256 assets, uint256 shares ) = _initializeLender(assetsToDeposit_, 1, MAX_ASSETS);
-
-        _lockShares(lp, shares);
-
-        assertEq(_pool.balanceOf(address(lp)),                 0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), shares);
-
-        assertEq(_asset.balanceOf(address(lp)),                 0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     shares);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        shares);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
-        assertTrue(!_withdrawalManager.isProcessed(2));
-
-        vm.warp(START + COOLDOWN + WITHDRAWAL_WINDOW);
-
-        lp.withdrawalManager_redeemPosition(address(_withdrawalManager), 0);
-
-        assertEq(_pool.balanceOf(address(lp)),                 0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), shares);
-
-        assertEq(_asset.balanceOf(address(lp)),                 0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     shares);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 4);
-
-        assertEq(_withdrawalManager.totalShares(2),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 0);
-        assertTrue(_withdrawalManager.isProcessed(2));
-
-        assertEq(_withdrawalManager.totalShares(4),        shares);
-        assertEq(_withdrawalManager.pendingWithdrawals(4), 1);
-        assertTrue(!_withdrawalManager.isProcessed(4));
-
-        vm.warp(START + 2 * COOLDOWN);
-
-        lp.withdrawalManager_redeemPosition(address(_withdrawalManager), 0);
-
-        assertEq(_pool.balanceOf(address(lp)),                 0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_asset.balanceOf(address(lp)),                 assets);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 0);
-
-        assertEq(_withdrawalManager.totalShares(4),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(4), 0);
-        assertTrue(_withdrawalManager.isProcessed(4));
-    }
-
-    function test_redeemPosition_fullLiquidity(uint256 assetsToDeposit_) external {
-        ( LP lp, uint256 assets, uint256 shares ) = _initializeLender(assetsToDeposit_, 1, MAX_ASSETS);
-
-        _lockShares(lp, shares);
-
-        assertEq(_pool.balanceOf(address(lp)),                 0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), shares);
-
-        assertEq(_asset.balanceOf(address(lp)),                 0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     shares);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        shares);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
-        assertTrue(!_withdrawalManager.isProcessed(2));
-
-        vm.warp(START + COOLDOWN);
-
-        lp.withdrawalManager_redeemPosition(address(_withdrawalManager), shares);
-
-        assertEq(_pool.balanceOf(address(lp)),                 0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_asset.balanceOf(address(lp)),                 assets);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 0);
-
-        assertEq(_withdrawalManager.totalShares(2),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 0);
-        assertTrue(_withdrawalManager.isProcessed(2));
-    }
-
-    function test_redeemPosition_noLiquidity(uint256 assetsToDeposit_) external {
-        ( LP lp, uint256 assets, uint256 shares ) = _initializeLender(assetsToDeposit_, 1, MAX_ASSETS);
-
-        _lockShares(lp, shares);
-
-        assertEq(_pool.balanceOf(address(lp)),                 0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), shares);
-
-        assertEq(_asset.balanceOf(address(lp)),                 0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     shares);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        shares);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
-        assertTrue(!_withdrawalManager.isProcessed(2));
-
-        vm.warp(START + COOLDOWN);
-
-        // Remove all liquidity.
-        _pool.removeLiquidity(assets);
-
-        lp.withdrawalManager_redeemPosition(address(_withdrawalManager), shares);
-
-        assertEq(_pool.balanceOf(address(lp)),                 shares);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_asset.balanceOf(address(lp)),                 0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 0);
-
-        assertEq(_withdrawalManager.totalShares(2),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 0);
-        assertTrue(_withdrawalManager.isProcessed(2));
-    }
-
-    function test_redeemPosition_partialLiquidity(uint256 assetsToDeposit_, uint256 lendedAssets_) external {
-        ( LP lp, uint256 assets, uint256 shares ) = _initializeLender(assetsToDeposit_, 2, MAX_ASSETS);
-        lendedAssets_ = constrictToRange(lendedAssets_, 1, assets - 1);
-
-        _lockShares(lp, shares);
-
-        assertEq(_pool.balanceOf(address(lp)),                 0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), shares);
-
-        assertEq(_asset.balanceOf(address(lp)),                 0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     shares);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        shares);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
-        assertTrue(!_withdrawalManager.isProcessed(2));
-
-        vm.warp(START + COOLDOWN);
-
-        // Remove the amount of assets that were lended.
-        _pool.removeLiquidity(lendedAssets_);
-
-        lp.withdrawalManager_redeemPosition(address(_withdrawalManager), lendedAssets_);
-
-        // `lendedAssets_` is equivalent to the amount of unredeemed shares due to the 1:1 exchange rate.
-        assertEq(_pool.balanceOf(address(lp)),                 lendedAssets_);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_asset.balanceOf(address(lp)),                 assets - lendedAssets_);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 0);
-
-        assertEq(_withdrawalManager.totalShares(2),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 0);
-        assertTrue(_withdrawalManager.isProcessed(2));
-    }
-
-    function test_redeemPosition_partialLiquidityWithRetry(uint256 assetsToDeposit_, uint256 lendedAssets_) external {
-        ( LP lp, uint256 assets, uint256 shares ) = _initializeLender(assetsToDeposit_, 2, MAX_ASSETS);
-        lendedAssets_ = constrictToRange(lendedAssets_, 1, assets - 1);
-
-        _lockShares(lp, shares);
-
-        assertEq(_pool.balanceOf(address(lp)),                 0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), shares);
-
-        assertEq(_asset.balanceOf(address(lp)),                 0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     shares);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        shares);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
-        assertTrue(!_withdrawalManager.isProcessed(2));
-
-        vm.warp(START + COOLDOWN);
-
-        // Remove the amount of assets that were lended.
-        _pool.removeLiquidity(lendedAssets_);
-
-        lp.withdrawalManager_redeemPosition(address(_withdrawalManager), 0);
-
-        assertEq(_pool.balanceOf(address(lp)),                 0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), lendedAssets_);
-
-        assertEq(_asset.balanceOf(address(lp)),                 assets - lendedAssets_);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     lendedAssets_);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 4);
-
-        assertEq(_withdrawalManager.totalShares(2),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 0);
-        assertTrue(_withdrawalManager.isProcessed(2));
-
-        assertEq(_withdrawalManager.totalShares(4),        lendedAssets_);
-        assertEq(_withdrawalManager.pendingWithdrawals(4), 1);
-        assertTrue(!_withdrawalManager.isProcessed(4));
-
-        vm.warp(START + 2 * COOLDOWN);
-
-        // The new LP is adding enough additional liquidity for the original LP to exit.
-        _mintAndDepositAssets(new LP(), lendedAssets_);
-
-        lp.withdrawalManager_redeemPosition(address(_withdrawalManager), 0);
-
-        assertEq(_pool.balanceOf(address(lp)),                 0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_asset.balanceOf(address(lp)),                 assets);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp)),     0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp)), 0);
-
-        assertEq(_withdrawalManager.totalShares(4),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(4), 0);
-        assertTrue(_withdrawalManager.isProcessed(4));
-    }
-
-    function test_redeemPosition_withGains() external {
-        // TODO: Add example of a withdrawal after the exchange rate increases.
-    }
-
-    function test_redeemPosition_withLosses() external {
-        // TODO: Add example of a withdrawal after a default occurs.
-    }
-
-}
-
-contract RedeemPositionFailureTests is WithdrawalManagerTestBase {
-
-    function test_redeemPosition_noRequest(uint256 assetsToDeposit_) external {
-        ( LP lp, , uint256 shares ) = _initializeLender(assetsToDeposit_, 1, MAX_ASSETS);
-
-        vm.expectRevert("WM:RP:NO_REQUEST");
-        lp.withdrawalManager_redeemPosition(address(_withdrawalManager), 0);
-
-        lp.erc20_approve(address(_pool), address(_withdrawalManager), shares);
-        lp.withdrawalManager_lockShares(address(_withdrawalManager), shares);
-
-        vm.warp(START + COOLDOWN);
-
-        lp.withdrawalManager_redeemPosition(address(_withdrawalManager), 0);
-    }
-
-    function test_redeemPosition_earlyWithdraw(uint256 assetsToDeposit_) external {
-        ( LP lp, , uint256 shares ) = _initializeLender(assetsToDeposit_, 1, MAX_ASSETS);
-
-        _lockShares(lp, shares);
-
-        vm.warp(START + COOLDOWN - 1);
-
-        vm.expectRevert("WM:RP:EARLY_WITHDRAW");
-        lp.withdrawalManager_redeemPosition(address(_withdrawalManager), 0);
-
-        vm.warp(START + COOLDOWN);
-
-        lp.withdrawalManager_redeemPosition(address(_withdrawalManager), 0);
-    }
-}
-
-contract ReclaimAssetsTests is WithdrawalManagerTestBase {
-
-    function test_reclaimAssets_fullLiquidity(uint256 assetsToDeposit_) external {
-        ( LP lp, uint256 assets, uint256 shares ) = _initializeLender(assetsToDeposit_, 1, MAX_ASSETS);
-
-        _lockShares(lp, shares);
-
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), shares);
-
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-        assertEq(_asset.balanceOf(address(_pool)),              assets);
-
-        assertEq(_withdrawalManager.availableAssets(2), 0);
-        assertEq(_withdrawalManager.leftoverShares(2),  0);
-
-        vm.warp(START + COOLDOWN);
-
-        // Process the period explicity, which causes redemption of all shares.
-        _poolDelegate.withdrawalManager_processPeriod(address(_withdrawalManager));
-
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), assets);
-        assertEq(_asset.balanceOf(address(_pool)),              0);
-
-        assertEq(_withdrawalManager.availableAssets(2), assets);
-        assertEq(_withdrawalManager.leftoverShares(2),  0);
-
-        vm.warp(START + COOLDOWN + WITHDRAWAL_WINDOW);
-
-        _poolDelegate.withdrawalManager_reclaimAssets(address(_withdrawalManager), 2);
-
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), shares);
-
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-        assertEq(_asset.balanceOf(address(_pool)),              assets);
-
-        assertEq(_withdrawalManager.availableAssets(2), 0);
-        assertEq(_withdrawalManager.leftoverShares(2),  shares);
-    }
-
-    function test_reclaimAssets_partialLiquidity(uint256 assetsToDeposit_, uint256 lendedAssets_) external {
-        ( LP lp, uint256 assets, uint256 shares ) = _initializeLender(assetsToDeposit_, 2, MAX_ASSETS);
-        lendedAssets_ = constrictToRange(lendedAssets_, 1, assets - 1);
-
-        _lockShares(lp, shares);
-
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), shares);
-
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-        assertEq(_asset.balanceOf(address(_pool)),              assets);
-
-        assertEq(_withdrawalManager.availableAssets(2), 0);
-        assertEq(_withdrawalManager.leftoverShares(2),  0);
-
-        vm.warp(START + COOLDOWN);
-
-        // Remmove some of the liquidity.
-        _pool.removeLiquidity(lendedAssets_);
-        _poolDelegate.withdrawalManager_processPeriod(address(_withdrawalManager));
-
-        // `lendedAssets_` is equivalent to the amount of unredeemed shares due to the 1:1 exchange rate
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), lendedAssets_);
-
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), assets - lendedAssets_);
-        assertEq(_asset.balanceOf(address(_pool)),              0);
-
-        assertEq(_withdrawalManager.availableAssets(2), assets - lendedAssets_);
-        assertEq(_withdrawalManager.leftoverShares(2),  lendedAssets_);
-
-        vm.warp(START + COOLDOWN + WITHDRAWAL_WINDOW);
-
-        _poolDelegate.withdrawalManager_reclaimAssets(address(_withdrawalManager), 2);
-
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), shares);
-
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-        assertEq(_asset.balanceOf(address(_pool)),              assets - lendedAssets_);
-
-        assertEq(_withdrawalManager.availableAssets(2), 0);
-        assertEq(_withdrawalManager.leftoverShares(2),  shares);
-    }
-
-}
-
-contract ReclaimAssetsFailureTests is WithdrawalManagerTestBase {
-
-    function test_reclaimAssets_notPoolDelegate() external {
-        LP lp = _initializeLender(1);
-
-        _lockShares(lp, 1);
-
-        vm.warp(START + COOLDOWN);
-
-        // Process the period explicity, which causes redemption of all shares.
-        _poolDelegate.withdrawalManager_processPeriod(address(_withdrawalManager));
-
-        // Wait until the withdrawal period elapses before reclaiming.
-        vm.warp(START + COOLDOWN + DURATION);
-
-        PoolDelegate notPoolDelegate = new PoolDelegate();
-
-        vm.expectRevert("WM:RA:NOT_PD");
-        notPoolDelegate.withdrawalManager_reclaimAssets(address(_withdrawalManager), 2);
-
-        _poolDelegate.withdrawalManager_reclaimAssets(address(_withdrawalManager), 2);
-    }
-
-    function test_reclaimAssets_earlyReclaim() external {
-        LP lp = _initializeLender(1e18);
-
-        _lockShares(lp, 1e18);
-
-        uint256 withdrawalPeriod = _withdrawalManager.withdrawalCycleId(address(lp));
-        ( uint256 start_, uint256 end_ ) = _withdrawalManager.getWithdrawalWindowBounds(withdrawalPeriod);
-
-        vm.warp(start_);
-
-        // Process the period explicity, which causes redemption of all shares.
-        _poolDelegate.withdrawalManager_processPeriod(address(_withdrawalManager));
-
-        vm.warp(end_ - 1);
-
-        vm.expectRevert("WM:RA:EARLY_RECLAIM");
-        _poolDelegate.withdrawalManager_reclaimAssets(address(_withdrawalManager), withdrawalPeriod);
-
-        vm.warp(end_);
-
-        _poolDelegate.withdrawalManager_reclaimAssets(address(_withdrawalManager), withdrawalPeriod);
-    }
-
-    function test_reclaimAssets_zeroAssets() external {
-        LP lp = _initializeLender(1);
-
-        _lockShares(lp, 1);
-
-        vm.warp(START + COOLDOWN + DURATION);
-
-        vm.expectRevert("WM:RA:ZERO_ASSETS");
-        _poolDelegate.withdrawalManager_reclaimAssets(address(_withdrawalManager), 2);
-
-        vm.warp(START + COOLDOWN);
-
-        // Process the period explicity, which causes redemption of all shares.
-        _poolDelegate.withdrawalManager_processPeriod(address(_withdrawalManager));
-
-        vm.warp(START + COOLDOWN + DURATION);
-
-        _poolDelegate.withdrawalManager_reclaimAssets(address(_withdrawalManager), 2);
-    }
-
-}
-
-contract SetNextConfigTests is WithdrawalManagerTestBase {
-
-    function test_setNextConfiguration_failIfNotAdmin() external {
-        vm.warp(block.timestamp + 1 days);
-
-        uint256 newDuration_         = 4 weeks;
-        uint256 newWithdrawalWindow_ = 1 weeks;
-
-        vm.expectRevert("WM:SNC:NOT_ADMIN");
-        _withdrawalManager.setNextConfiguration(newDuration_, newWithdrawalWindow_);
-    }
-
-    function test_setNextConfiguration_failIOutOfBOunds() external {
-        vm.warp(block.timestamp + 1 days);
-
-        // TODO: Remove appended underscore syntax in all tests
-        uint256 newDuration_         = 4 weeks;
-        uint256 newWithdrawalWindow_ = 4 weeks + 1 seconds;
-
-        vm.startPrank(ADMIN);
-        vm.expectRevert("WM:SNC:OOB");
-        _withdrawalManager.setNextConfiguration(newDuration_, newWithdrawalWindow_);
+        vm.startPrank(governor);
+        factory.registerImplementation(2, newImplementation, initializer);
+        factory.enableUpgradePath(1, 2, migrator);
         vm.stopPrank();
     }
 
-    function test_setNextConfiguration() external {
-        vm.warp(block.timestamp + 1 days);
-
-        uint256 newDuration_         = 4 weeks;
-        uint256 newWithdrawalWindow_ = 1 weeks;
-
-        ( uint64 startingIndex_, uint64 start_, uint64 withdrawalWindow_, uint64 duration_ ) = _withdrawalManager.configurations(0);
-
-        assertEq(startingIndex_,    0);
-        assertEq(start_,            START);
-        assertEq(duration_,         DURATION);
-        assertEq(withdrawalWindow_, WITHDRAWAL_WINDOW);
-
-        vm.prank(ADMIN);
-        _withdrawalManager.setNextConfiguration(newDuration_, newWithdrawalWindow_);
-
-        ( startingIndex_, start_, withdrawalWindow_, duration_ ) = _withdrawalManager.configurations(1);
-
-        assertEq(startingIndex_,    3);
-        assertEq(start_,            START + (3 * DURATION));  // End + 2 * DURATION
-        assertEq(duration_,         newDuration_);
-        assertEq(withdrawalWindow_, newWithdrawalWindow_);
-
-        // Assert that some view functions return the current configuration
-        assertEq(_withdrawalManager.cycleDuration(), DURATION);
-
-        vm.warp(start_);
-
-        // Assert that some view functions return the current configuration
-        assertEq(_withdrawalManager.cycleDuration(), newDuration_);
+    function test_upgrade_notAdmin() external {
+        vm.expectRevert("WM:U:NOT_ADMIN");
+        withdrawalManager.upgrade(2, "");
     }
 
-    function test_setNextConfiguration_doNotAffectExistingWithdrawals() external {
-        uint256 assetsToDeposit_     = 1e30;
-        uint256 newDuration_         = 4 weeks;
-        uint256 newWithdrawalWindow_ = 1 weeks;
-
-        ( LP lp_, , uint256 shares_ ) = _initializeLender(assetsToDeposit_, 1, MAX_ASSETS);
-
-        vm.warp(block.timestamp + 1 days);
-
-        _lockShares(lp_, shares_);
-
-        ( uint256 lockedShares_, uint256 withdrawalPeriod_ ) = _withdrawalManager.requests(address(lp_));
-        ( uint256 start_,        uint256 end_ )              = _withdrawalManager.getWithdrawalWindowBounds(withdrawalPeriod_);
-
-        assertEq(lockedShares_,     shares_);
-        assertEq(withdrawalPeriod_, 2);
-        assertEq(start_,            START + (2 * DURATION));
-        assertEq(end_,              START + (2 * DURATION) + WITHDRAWAL_WINDOW);
-
-        vm.prank(ADMIN);
-        _withdrawalManager.setNextConfiguration(newDuration_, newWithdrawalWindow_);
-
-        ( lockedShares_,  withdrawalPeriod_ ) = _withdrawalManager.requests(address(lp_));
-        ( start_,         end_ )              = _withdrawalManager.getWithdrawalWindowBounds(withdrawalPeriod_);
-
-        assertEq(lockedShares_,     shares_);
-        assertEq(withdrawalPeriod_, 2);
-        assertEq(start_,            START + (2 * DURATION));
-        assertEq(end_,              START + (2 * DURATION) + WITHDRAWAL_WINDOW);
+    function test_upgrade_upgradeFailed() external {
+        vm.prank(admin);
+        vm.expectRevert("MPF:UI:FAILED");
+        withdrawalManager.upgrade(2, "1");
     }
 
-    function test_setNextConfiguration_overridesNextConfiguration() external {
-        vm.warp(block.timestamp + 1 days);
+    function test_upgrade_success() external {
+        assertEq(withdrawalManager.implementation(), implementation);
+        assertEq(withdrawalManager.pool(),           address(pool));
 
-        uint256 newDuration_         = 4 weeks;
-        uint256 newWithdrawalWindow_ = 1 weeks;
+        vm.prank(admin);
+        withdrawalManager.upgrade(2, abi.encode(address(0)));
 
-        ( uint64 startingIndex_, uint64 start_, uint64 withdrawalWindow_, uint64 duration_ ) = _withdrawalManager.configurations(0);
-
-        assertEq(startingIndex_,    0);
-        assertEq(start_,            START);
-        assertEq(duration_,         DURATION);
-        assertEq(withdrawalWindow_, WITHDRAWAL_WINDOW);
-
-        vm.prank(ADMIN);
-        _withdrawalManager.setNextConfiguration(newDuration_, newWithdrawalWindow_);
-
-        ( startingIndex_,  start_,  withdrawalWindow_,  duration_ ) = _withdrawalManager.configurations(1);
-
-        assertEq(startingIndex_,    3);
-        assertEq(start_,            START + (3 * DURATION));
-        assertEq(duration_,         newDuration_);
-        assertEq(withdrawalWindow_, newWithdrawalWindow_);
-
-        uint256 updatedDuration_         = 4 days;
-        uint256 updatedWithdrawalWindow_ = 1 days;
-
-        // Set Updated values
-        vm.prank(ADMIN);
-        _withdrawalManager.setNextConfiguration(updatedDuration_, updatedWithdrawalWindow_);
-
-        ( startingIndex_,  start_,  withdrawalWindow_,  duration_ ) = _withdrawalManager.configurations(1);
-
-        assertEq(startingIndex_,    3);
-        assertEq(start_,            START + (3 * DURATION));
-        assertEq(duration_,         updatedDuration_);
-        assertEq(withdrawalWindow_, updatedWithdrawalWindow_);
-
-        // The 2 configuration slot is still empty
-        ( startingIndex_,  start_,  withdrawalWindow_,  duration_ ) = _withdrawalManager.configurations(2);
-
-        assertEq(startingIndex_,    0);
-        assertEq(start_,            0);
-        assertEq(duration_,         0);
-        assertEq(withdrawalWindow_, 0);
+        assertEq(withdrawalManager.implementation(), newImplementation);
+        assertEq(withdrawalManager.pool(),           address(0));
     }
 
 }
 
-contract MultiUserTests is WithdrawalManagerTestBase {
+contract SetExitConfigTests is WithdrawalManagerTestBase {
 
-    function test_multipleWithdrawals_fullLiquidity() external {
-        LP lp1 = _initializeLender(2e18);
-        LP lp2 = _initializeLender(5e18);
-        LP lp3 = _initializeLender(3e18);
-
-        _lockShares(lp1, 2e18);
-        _lockShares(lp2, 5e18);
-        _lockShares(lp3, 3e18);
-
-        // Warp to the beggining of the withdrawal period.
-        vm.warp(START + COOLDOWN);
-
-        assertEq(_pool.balanceOf(address(lp1)),                0);
-        assertEq(_pool.balanceOf(address(lp2)),                0);
-        assertEq(_pool.balanceOf(address(lp3)),                0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 2e18 + 5e18 + 3e18);
-
-        assertEq(_asset.balanceOf(address(lp1)),                0);
-        assertEq(_asset.balanceOf(address(lp2)),                0);
-        assertEq(_asset.balanceOf(address(lp3)),                0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp1)), 2e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp2)), 5e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp3)), 3e18);
-
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp1)), 2);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp2)), 2);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp3)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        2e18 + 5e18 + 3e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 3);
-        assertEq(_withdrawalManager.availableAssets(2),    0);
-        assertEq(_withdrawalManager.leftoverShares(2),     0);
-        assertTrue(!_withdrawalManager.isProcessed(2));
-
-        // First LP redeems his shares, causing all shares to be redeemed.
-        lp1.withdrawalManager_redeemPosition(address(_withdrawalManager), 0);
-
-        assertEq(_pool.balanceOf(address(lp1)),                0);
-        assertEq(_pool.balanceOf(address(lp2)),                0);
-        assertEq(_pool.balanceOf(address(lp3)),                0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_asset.balanceOf(address(lp1)),                2e18);
-        assertEq(_asset.balanceOf(address(lp2)),                0);
-        assertEq(_asset.balanceOf(address(lp3)),                0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 5e18 + 3e18);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp1)), 0);
-        assertEq(_withdrawalManager.lockedShares(address(lp2)), 5e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp3)), 3e18);
-
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp1)), 0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp2)), 2);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp3)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        5e18 + 3e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 2);
-        assertEq(_withdrawalManager.availableAssets(2),    5e18 + 3e18);
-        assertEq(_withdrawalManager.leftoverShares(2),     0);
-        assertTrue(_withdrawalManager.isProcessed(2));
-
-        // Second LP redeems his shares.
-        lp2.withdrawalManager_redeemPosition(address(_withdrawalManager), 0);
-
-        assertEq(_pool.balanceOf(address(lp1)),                0);
-        assertEq(_pool.balanceOf(address(lp2)),                0);
-        assertEq(_pool.balanceOf(address(lp3)),                0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_asset.balanceOf(address(lp1)),                2e18);
-        assertEq(_asset.balanceOf(address(lp2)),                5e18);
-        assertEq(_asset.balanceOf(address(lp3)),                0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 3e18);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp1)), 0);
-        assertEq(_withdrawalManager.lockedShares(address(lp2)), 0);
-        assertEq(_withdrawalManager.lockedShares(address(lp3)), 3e18);
-
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp1)), 0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp2)), 0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp3)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        3e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
-        assertEq(_withdrawalManager.availableAssets(2),    3e18);
-        assertEq(_withdrawalManager.leftoverShares(2),     0);
-        assertTrue(_withdrawalManager.isProcessed(2));
-
-        // Third LP redeems his shares.
-        lp3.withdrawalManager_redeemPosition(address(_withdrawalManager), 0);
-
-        assertEq(_pool.balanceOf(address(lp1)),                0);
-        assertEq(_pool.balanceOf(address(lp2)),                0);
-        assertEq(_pool.balanceOf(address(lp3)),                0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_asset.balanceOf(address(lp1)),                2e18);
-        assertEq(_asset.balanceOf(address(lp2)),                5e18);
-        assertEq(_asset.balanceOf(address(lp3)),                3e18);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp1)), 0);
-        assertEq(_withdrawalManager.lockedShares(address(lp2)), 0);
-        assertEq(_withdrawalManager.lockedShares(address(lp3)), 0);
-
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp1)), 0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp2)), 0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp3)), 0);
-
-        assertEq(_withdrawalManager.totalShares(2),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 0);
-        assertEq(_withdrawalManager.availableAssets(2),    0);
-        assertEq(_withdrawalManager.leftoverShares(2),     0);
-        assertTrue(_withdrawalManager.isProcessed(2));
+    function test_setExitConfig_notAdmin() external {
+        vm.expectRevert("WM:SEC:NOT_ADMIN");
+        withdrawalManager.setExitConfig(1, 1);
     }
 
-    // The end result of this scenario is the same as if zero liquidity is available.
-    function test_multipleWithdrawals_noPoolInteraction() external {
-        LP lp1 = _initializeLender(2e18);
-        LP lp2 = _initializeLender(5e18);
-        LP lp3 = _initializeLender(3e18);
-
-        _lockShares(lp1, 2e18);
-        _lockShares(lp2, 5e18);
-        _lockShares(lp3, 3e18);
-
-        // Withdrawal period elapses, preventing redemption of shares.
-        vm.warp(START + COOLDOWN + WITHDRAWAL_WINDOW);
-
-        assertEq(_pool.balanceOf(address(lp1)),                0);
-        assertEq(_pool.balanceOf(address(lp2)),                0);
-        assertEq(_pool.balanceOf(address(lp3)),                0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 2e18 + 5e18 + 3e18);
-
-        assertEq(_asset.balanceOf(address(lp1)),                0);
-        assertEq(_asset.balanceOf(address(lp2)),                0);
-        assertEq(_asset.balanceOf(address(lp3)),                0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp1)), 2e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp2)), 5e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp3)), 3e18);
-
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp1)), 2);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp2)), 2);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp3)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        2e18 + 5e18 + 3e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 3);
-        assertEq(_withdrawalManager.availableAssets(2),    0);
-        assertEq(_withdrawalManager.leftoverShares(2),     0);
-        assertTrue(!_withdrawalManager.isProcessed(2));
-
-        // First LP reclaims, only receiving back the shares he previously locked.
-        lp1.withdrawalManager_redeemPosition(address(_withdrawalManager), 2e18);
-
-        assertEq(_pool.balanceOf(address(lp1)),                2e18);
-        assertEq(_pool.balanceOf(address(lp2)),                0);
-        assertEq(_pool.balanceOf(address(lp3)),                0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 5e18 + 3e18);
-
-        assertEq(_asset.balanceOf(address(lp1)),                0);
-        assertEq(_asset.balanceOf(address(lp2)),                0);
-        assertEq(_asset.balanceOf(address(lp3)),                0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp1)), 0);
-        assertEq(_withdrawalManager.lockedShares(address(lp2)), 5e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp3)), 3e18);
-
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp1)), 0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp2)), 2);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp3)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        5e18 + 3e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 2);
-        assertEq(_withdrawalManager.availableAssets(2),    0);
-        assertEq(_withdrawalManager.leftoverShares(2),     5e18 + 3e18);
-        assertTrue(_withdrawalManager.isProcessed(2));
-
-        // Second LP reclaims.
-        lp2.withdrawalManager_redeemPosition(address(_withdrawalManager), 5e18);
-
-        assertEq(_pool.balanceOf(address(lp1)),                2e18);
-        assertEq(_pool.balanceOf(address(lp2)),                5e18);
-        assertEq(_pool.balanceOf(address(lp3)),                0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 3e18);
-
-        assertEq(_asset.balanceOf(address(lp1)),                0);
-        assertEq(_asset.balanceOf(address(lp2)),                0);
-        assertEq(_asset.balanceOf(address(lp3)),                0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp1)), 0);
-        assertEq(_withdrawalManager.lockedShares(address(lp2)), 0);
-        assertEq(_withdrawalManager.lockedShares(address(lp3)), 3e18);
-
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp1)), 0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp2)), 0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp3)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        3e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
-        assertEq(_withdrawalManager.availableAssets(2),    0);
-        assertEq(_withdrawalManager.leftoverShares(2),     3e18);
-        assertTrue(_withdrawalManager.isProcessed(2));
-
-        // Third LP reclaims.
-        lp3.withdrawalManager_redeemPosition(address(_withdrawalManager), 3e18);
-
-        assertEq(_pool.balanceOf(address(lp1)),                2e18);
-        assertEq(_pool.balanceOf(address(lp2)),                5e18);
-        assertEq(_pool.balanceOf(address(lp3)),                3e18);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_asset.balanceOf(address(lp1)),                0);
-        assertEq(_asset.balanceOf(address(lp2)),                0);
-        assertEq(_asset.balanceOf(address(lp3)),                0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp1)), 0);
-        assertEq(_withdrawalManager.lockedShares(address(lp2)), 0);
-        assertEq(_withdrawalManager.lockedShares(address(lp3)), 0);
-
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp1)), 0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp2)), 0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp3)), 0);
-
-        assertEq(_withdrawalManager.totalShares(2),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 0);
-        assertEq(_withdrawalManager.availableAssets(2),    0);
-        assertEq(_withdrawalManager.leftoverShares(2),     0);
-        assertTrue(_withdrawalManager.isProcessed(2));
+    function test_setExitConfig_zeroWindow() external {
+        vm.prank(admin);
+        vm.expectRevert("WM:SEC:ZERO_WINDOW");
+        withdrawalManager.setExitConfig(1, 0);
     }
 
-    function test_multipleWithdrawals_partialLiquidity() external {
-        LP lp1 = _initializeLender(2e18);
-        LP lp2 = _initializeLender(5e18);
-        LP lp3 = _initializeLender(3e18);
-
-        _lockShares(lp1, 2e18);
-        _lockShares(lp2, 5e18);
-        _lockShares(lp3, 3e18);
-
-        // Warp to the beggining of the withdrawal period
-        vm.warp(START + COOLDOWN);
-
-        assertEq(_pool.balanceOf(address(lp1)),                0);
-        assertEq(_pool.balanceOf(address(lp2)),                0);
-        assertEq(_pool.balanceOf(address(lp3)),                0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 2e18 + 5e18 + 3e18);
-
-        assertEq(_asset.balanceOf(address(lp1)),                0);
-        assertEq(_asset.balanceOf(address(lp2)),                0);
-        assertEq(_asset.balanceOf(address(lp3)),                0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp1)), 2e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp2)), 5e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp3)), 3e18);
-
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp1)), 2);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp2)), 2);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp3)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        2e18 + 5e18 + 3e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 3);
-        assertEq(_withdrawalManager.availableAssets(2),    0);
-        assertEq(_withdrawalManager.leftoverShares(2),     0);
-        assertTrue(!_withdrawalManager.isProcessed(2));
-
-        // Remove half of the required assets.
-        _pool.removeLiquidity((2e18 + 5e18 + 3e18) / 2);
-
-        // First LP performs a partial redemption, redeeming half of all shares.
-        lp1.withdrawalManager_redeemPosition(address(_withdrawalManager), 0);
-
-        assertEq(_pool.balanceOf(address(lp1)),                0);
-        assertEq(_pool.balanceOf(address(lp2)),                0);
-        assertEq(_pool.balanceOf(address(lp3)),                0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 1e18 + 2.5e18 + 1.5e18);
-
-        assertEq(_asset.balanceOf(address(lp1)),                1e18);
-        assertEq(_asset.balanceOf(address(lp2)),                0);
-        assertEq(_asset.balanceOf(address(lp3)),                0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 2.5e18 + 1.5e18);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp1)), 1e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp2)), 5e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp3)), 3e18);
-
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp1)), 4);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp2)), 2);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp3)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        5e18 + 3e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 2);
-        assertEq(_withdrawalManager.availableAssets(2),    2.5e18 + 1.5e18);
-        assertEq(_withdrawalManager.leftoverShares(2),     2.5e18 + 1.5e18);
-        assertTrue(_withdrawalManager.isProcessed(2));
-
-        // The leftover shares are moved to the next withdrawal period (4).
-        assertEq(_withdrawalManager.totalShares(4),        1e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(4), 1);
-        assertEq(_withdrawalManager.availableAssets(4),    0);
-        assertEq(_withdrawalManager.leftoverShares(4),     0);
-        assertTrue(!_withdrawalManager.isProcessed(4));
-
-        // Second LP redeems.
-        lp2.withdrawalManager_redeemPosition(address(_withdrawalManager), 0);
-
-        assertEq(_pool.balanceOf(address(lp1)),                0);
-        assertEq(_pool.balanceOf(address(lp2)),                0);
-        assertEq(_pool.balanceOf(address(lp3)),                0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 1e18 + 2.5e18 + 1.5e18);
-
-        assertEq(_asset.balanceOf(address(lp1)),                1e18);
-        assertEq(_asset.balanceOf(address(lp2)),                2.5e18);
-        assertEq(_asset.balanceOf(address(lp3)),                0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 1.5e18);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp1)), 1e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp3)), 3e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp2)), 2.5e18);
-
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp1)), 4);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp2)), 4);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp3)), 2);
-
-        assertEq(_withdrawalManager.totalShares(2),        3e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
-        assertEq(_withdrawalManager.availableAssets(2),    1.5e18);
-        assertEq(_withdrawalManager.leftoverShares(2),     1.5e18);
-        assertTrue(_withdrawalManager.isProcessed(2));
-
-        assertEq(_withdrawalManager.totalShares(4),        1e18 + 2.5e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(4), 2);
-        assertEq(_withdrawalManager.availableAssets(4),    0);
-        assertEq(_withdrawalManager.leftoverShares(4),     0);
-        assertTrue(!_withdrawalManager.isProcessed(4));
-
-        // Third LP redeems.
-        lp3.withdrawalManager_redeemPosition(address(_withdrawalManager), 0);
-
-        assertEq(_pool.balanceOf(address(lp1)),                0);
-        assertEq(_pool.balanceOf(address(lp2)),                0);
-        assertEq(_pool.balanceOf(address(lp3)),                0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 1e18 + 2.5e18 + 1.5e18);
-
-        assertEq(_asset.balanceOf(address(lp1)),                1e18);
-        assertEq(_asset.balanceOf(address(lp2)),                2.5e18);
-        assertEq(_asset.balanceOf(address(lp3)),                1.5e18);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
-
-        assertEq(_withdrawalManager.lockedShares(address(lp1)), 1e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp2)), 2.5e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp3)), 1.5e18);
-
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp1)), 4);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp2)), 4);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp3)), 4);
-
-        assertEq(_withdrawalManager.totalShares(2),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 0);
-        assertEq(_withdrawalManager.availableAssets(2),    0);
-        assertEq(_withdrawalManager.leftoverShares(2),     0);
-        assertTrue(_withdrawalManager.isProcessed(2));
-
-        assertEq(_withdrawalManager.totalShares(4),        1e18 + 2.5e18 + 1.5e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(4), 3);
-        assertEq(_withdrawalManager.availableAssets(4),    0);
-        assertEq(_withdrawalManager.leftoverShares(4),     0);
-        assertTrue(!_withdrawalManager.isProcessed(4));
+    function test_setExitConfig_windowOutOfBounds() external {
+        vm.prank(admin);
+        vm.expectRevert("WM:SEC:WINDOW_OOB");
+        withdrawalManager.setExitConfig(1, 2);
     }
 
-    function test_multipleWithdrawals_staggeredWithdrawals() external {
-        LP lp1 = _initializeLender(2e18);
-        LP lp2 = _initializeLender(8e18);
-        LP lp3 = _initializeLender(5e18);
+    function test_setExitConfig_identicalConfig() external {
+        vm.prank(admin);
+        vm.expectRevert("WM:SEC:IDENTICAL_CONFIG");
+        withdrawalManager.setExitConfig(1 weeks, 2 days);
+    }
 
-        // PERIOD 0: LP1 locks shares.
-        _lockShares(lp1, 2e18);
+    function test_setExitConfig_addConfig() external {
+        assertEq(withdrawalManager.latestConfigId(), 0);
+        assertConfig({
+            configurationId:  1,
+            initialCycleId:   0,
+            initialCycleTime: 0,
+            cycleDuration:    0,
+            windowDuration:   0
+        });
 
-        assertEq(_pool.balanceOf(address(lp1)),                0);
-        assertEq(_pool.balanceOf(address(lp2)),                8e18);
-        assertEq(_pool.balanceOf(address(lp3)),                5e18);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 2e18);
+        // Add a new configuration.
+        vm.prank(admin);
+        withdrawalManager.setExitConfig(1, 1);
 
-        assertEq(_asset.balanceOf(address(lp1)),                0);
-        assertEq(_asset.balanceOf(address(lp2)),                0);
-        assertEq(_asset.balanceOf(address(lp3)),                0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
+        assertEq(withdrawalManager.latestConfigId(), 1);
+        assertConfig({
+            configurationId:  1,
+            initialCycleId:   1     + 3,
+            initialCycleTime: start + 3 weeks,
+            cycleDuration:    1,
+            windowDuration:   1
+        });
+    }
 
-        assertEq(_withdrawalManager.lockedShares(address(lp1)), 2e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp2)), 0);
-        assertEq(_withdrawalManager.lockedShares(address(lp3)), 0);
+    function test_setExitConfig_updateConfig() external {
+        assertEq(withdrawalManager.latestConfigId(), 0);
+        assertConfig({
+            configurationId:  1,
+            initialCycleId:   0,
+            initialCycleTime: 0,
+            cycleDuration:    0,
+            windowDuration:   0
+        });
 
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp1)), 2);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp2)), 0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp3)), 0);
+        // Add a new configuration.
+        vm.prank(admin);
+        withdrawalManager.setExitConfig(1, 1);
 
-        assertEq(_withdrawalManager.totalShares(2),        2e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
-        assertEq(_withdrawalManager.availableAssets(2),    0);
-        assertEq(_withdrawalManager.leftoverShares(2),     0);
-        assertTrue(!_withdrawalManager.isProcessed(2));
+        assertEq(withdrawalManager.latestConfigId(), 1);
+        assertConfig({
+            configurationId:  1,
+            initialCycleId:   1     + 3,
+            initialCycleTime: start + 3 weeks,
+            cycleDuration:    1,
+            windowDuration:   1
+        });
 
-        // PERIOD 1: LP2 locks shares.
-        vm.warp(START + DURATION);
+        // Wait until just before the configuration takes effect and then update it.
+        vm.warp(start + 3 weeks - 1);
+        vm.prank(admin);
+        withdrawalManager.setExitConfig(2, 1);
 
-        _lockShares(lp2, 8e18);
+        assertEq(withdrawalManager.latestConfigId(), 1);
+        assertConfig({
+            configurationId:  1,
+            initialCycleId:   1     + 3       + 2,
+            initialCycleTime: start + 3 weeks + 2 weeks,
+            cycleDuration:    2,
+            windowDuration:   1
+        });
+    }
 
-        assertEq(_pool.balanceOf(address(lp1)),                0);
-        assertEq(_pool.balanceOf(address(lp2)),                0);
-        assertEq(_pool.balanceOf(address(lp3)),                5e18);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 2e18 + 8e18);
+}
 
-        assertEq(_asset.balanceOf(address(lp1)),                0);
-        assertEq(_asset.balanceOf(address(lp2)),                0);
-        assertEq(_asset.balanceOf(address(lp3)),                0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
+contract AddSharesTests is WithdrawalManagerTestBase {
 
-        assertEq(_withdrawalManager.lockedShares(address(lp1)), 2e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp2)), 8e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp3)), 0);
+    function setUp() public override {
+        super.setUp();
 
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp1)), 2);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp2)), 3);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp3)), 0);
+        vm.startPrank(lp);
+        pool.mint(lp, 2);
+        pool.approve(address(withdrawalManager), 2);
+        vm.stopPrank();
+    }
 
-        assertEq(_withdrawalManager.totalShares(2),        2e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
-        assertEq(_withdrawalManager.availableAssets(2),    0);
-        assertEq(_withdrawalManager.leftoverShares(2),     0);
-        assertTrue(!_withdrawalManager.isProcessed(2));
+    function test_addShares_pendingRequest() external {
+        vm.prank(lp);
+        withdrawalManager.addShares(1);
 
-        assertEq(_withdrawalManager.totalShares(3),        8e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(3), 1);
-        assertEq(_withdrawalManager.availableAssets(3),    0);
-        assertEq(_withdrawalManager.leftoverShares(3),     0);
-        assertTrue(!_withdrawalManager.isProcessed(3));
+        vm.warp(start + 2 weeks - 1 seconds);
+        vm.prank(lp);
+        vm.expectRevert("WM:AS:WITHDRAWAL_PENDING");
+        withdrawalManager.addShares(1);
+    }
 
-        // PERIOD 2: LP3 locks shares, LP1 reedems shares.
-        vm.warp(START + 2 * DURATION);
+    function test_addShares_emptyRequest() external {
+        vm.prank(lp);
+        vm.expectRevert("WM:AS:NO_OP");
+        withdrawalManager.addShares(0);
+    }
 
-        _lockShares(lp3, 5e18);
+    function test_addShares_createRequest() external {
+        assertEq(withdrawalManager.exitCycleId(lp),     0);
+        assertEq(withdrawalManager.lockedShares(lp),    0);
+        assertEq(withdrawalManager.totalCycleShares(3), 0);
 
-        assertEq(_pool.balanceOf(address(lp1)),                0);
-        assertEq(_pool.balanceOf(address(lp2)),                0);
-        assertEq(_pool.balanceOf(address(lp3)),                0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 2e18 + 8e18 + 5e18);
+        assertEq(pool.balanceOf(lp), 2);
+        assertEq(pool.balanceOf(wm), 0);
 
-        assertEq(_asset.balanceOf(address(lp1)),                0);
-        assertEq(_asset.balanceOf(address(lp2)),                0);
-        assertEq(_asset.balanceOf(address(lp3)),                0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
+        vm.prank(lp);
+        withdrawalManager.addShares(1);
 
-        assertEq(_withdrawalManager.lockedShares(address(lp1)), 2e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp2)), 8e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp3)), 5e18);
+        assertEq(withdrawalManager.exitCycleId(lp),     3);
+        assertEq(withdrawalManager.lockedShares(lp),    1);
+        assertEq(withdrawalManager.totalCycleShares(3), 1);
 
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp1)), 2);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp2)), 3);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp3)), 4);
+        assertEq(pool.balanceOf(lp), 1);
+        assertEq(pool.balanceOf(wm), 1);
+    }
 
-        assertEq(_withdrawalManager.totalShares(2),        2e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 1);
-        assertEq(_withdrawalManager.availableAssets(2),    0);
-        assertEq(_withdrawalManager.leftoverShares(2),     0);
-        assertTrue(!_withdrawalManager.isProcessed(2));
+    function test_addShares_refreshRequest() external {
+        assertEq(withdrawalManager.exitCycleId(lp),     0);
+        assertEq(withdrawalManager.lockedShares(lp),    0);
+        assertEq(withdrawalManager.totalCycleShares(3), 0);
 
-        assertEq(_withdrawalManager.totalShares(3),        8e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(3), 1);
-        assertEq(_withdrawalManager.availableAssets(3),    0);
-        assertEq(_withdrawalManager.leftoverShares(3),     0);
-        assertTrue(!_withdrawalManager.isProcessed(3));
+        assertEq(pool.balanceOf(lp), 2);
+        assertEq(pool.balanceOf(wm), 0);
 
-        assertEq(_withdrawalManager.totalShares(4),        5e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(4), 1);
-        assertEq(_withdrawalManager.availableAssets(4),    0);
-        assertEq(_withdrawalManager.leftoverShares(4),     0);
-        assertTrue(!_withdrawalManager.isProcessed(4));
+        vm.prank(lp);
+        withdrawalManager.addShares(1);
 
-        lp1.withdrawalManager_redeemPosition(address(_withdrawalManager), 0);
+        assertEq(withdrawalManager.exitCycleId(lp),     3);
+        assertEq(withdrawalManager.lockedShares(lp),    1);
+        assertEq(withdrawalManager.totalCycleShares(3), 1);
+        assertEq(withdrawalManager.totalCycleShares(5), 0);
 
-        assertEq(_pool.balanceOf(address(lp1)),                0);
-        assertEq(_pool.balanceOf(address(lp2)),                0);
-        assertEq(_pool.balanceOf(address(lp3)),                0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 8e18 + 5e18);
+        assertEq(pool.balanceOf(lp), 1);
+        assertEq(pool.balanceOf(wm), 1);
 
-        assertEq(_asset.balanceOf(address(lp1)),                2e18);
-        assertEq(_asset.balanceOf(address(lp2)),                0);
-        assertEq(_asset.balanceOf(address(lp3)),                0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
+        vm.warp(start + 2 weeks);
+        vm.prank(lp);
+        withdrawalManager.addShares(0);
 
-        assertEq(_withdrawalManager.lockedShares(address(lp1)), 0);
-        assertEq(_withdrawalManager.lockedShares(address(lp2)), 8e18);
-        assertEq(_withdrawalManager.lockedShares(address(lp3)), 5e18);
+        assertEq(withdrawalManager.exitCycleId(lp),     5);
+        assertEq(withdrawalManager.lockedShares(lp),    1);
+        assertEq(withdrawalManager.totalCycleShares(3), 0);
+        assertEq(withdrawalManager.totalCycleShares(5), 1);
 
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp1)), 0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp2)), 3);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp3)), 4);
+        assertEq(pool.balanceOf(lp), 1);
+        assertEq(pool.balanceOf(wm), 1);
+    }
 
-        assertEq(_withdrawalManager.totalShares(2),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 0);
-        assertEq(_withdrawalManager.availableAssets(2),    0);
-        assertEq(_withdrawalManager.leftoverShares(2),     0);
-        assertTrue(_withdrawalManager.isProcessed(2));
+    function test_addShares_increaseRequest() external {
+        assertEq(withdrawalManager.exitCycleId(lp),     0);
+        assertEq(withdrawalManager.lockedShares(lp),    0);
+        assertEq(withdrawalManager.totalCycleShares(3), 0);
 
-        assertEq(_withdrawalManager.totalShares(3),        8e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(3), 1);
-        assertEq(_withdrawalManager.availableAssets(3),    0);
-        assertEq(_withdrawalManager.leftoverShares(3),     0);
-        assertTrue(!_withdrawalManager.isProcessed(3));
+        assertEq(pool.balanceOf(lp), 2);
+        assertEq(pool.balanceOf(wm), 0);
 
-        assertEq(_withdrawalManager.totalShares(4),        5e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(4), 1);
-        assertEq(_withdrawalManager.availableAssets(4),    0);
-        assertEq(_withdrawalManager.leftoverShares(4),     0);
-        assertTrue(!_withdrawalManager.isProcessed(4));
+        vm.prank(lp);
+        withdrawalManager.addShares(1);
 
-        // PERIOD 3: LP2 redeems shares.
-        vm.warp(START + 3 * DURATION);
+        assertEq(withdrawalManager.exitCycleId(lp),     3);
+        assertEq(withdrawalManager.lockedShares(lp),    1);
+        assertEq(withdrawalManager.totalCycleShares(3), 1);
+        assertEq(withdrawalManager.totalCycleShares(5), 0);
 
-        lp2.withdrawalManager_redeemPosition(address(_withdrawalManager), 0);
+        assertEq(pool.balanceOf(lp), 1);
+        assertEq(pool.balanceOf(wm), 1);
 
-        assertEq(_pool.balanceOf(address(lp1)),                0);
-        assertEq(_pool.balanceOf(address(lp2)),                0);
-        assertEq(_pool.balanceOf(address(lp3)),                0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 5e18);
+        vm.warp(start + 2 weeks);
+        vm.prank(lp);
+        withdrawalManager.addShares(1);
 
-        assertEq(_asset.balanceOf(address(lp1)),                2e18);
-        assertEq(_asset.balanceOf(address(lp2)),                8e18);
-        assertEq(_asset.balanceOf(address(lp3)),                0);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
+        assertEq(withdrawalManager.exitCycleId(lp),     5);
+        assertEq(withdrawalManager.lockedShares(lp),    2);
+        assertEq(withdrawalManager.totalCycleShares(3), 0);
+        assertEq(withdrawalManager.totalCycleShares(5), 2);
 
-        assertEq(_withdrawalManager.lockedShares(address(lp1)), 0);
-        assertEq(_withdrawalManager.lockedShares(address(lp2)), 0);
-        assertEq(_withdrawalManager.lockedShares(address(lp3)), 5e18);
+        assertEq(pool.balanceOf(lp), 0);
+        assertEq(pool.balanceOf(wm), 2);
+    }
 
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp1)), 0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp2)), 0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp3)), 4);
+    function test_addShares_delayedUpdate() external {
+        assertEq(withdrawalManager.exitCycleId(lp),     0);
+        assertEq(withdrawalManager.lockedShares(lp),    0);
+        assertEq(withdrawalManager.totalCycleShares(3), 0);
 
-        assertEq(_withdrawalManager.totalShares(2),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 0);
-        assertEq(_withdrawalManager.availableAssets(2),    0);
-        assertEq(_withdrawalManager.leftoverShares(2),     0);
-        assertTrue(_withdrawalManager.isProcessed(2));
+        assertEq(pool.balanceOf(lp), 2);
+        assertEq(pool.balanceOf(wm), 0);
 
-        assertEq(_withdrawalManager.totalShares(3),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(3), 0);
-        assertEq(_withdrawalManager.availableAssets(3),    0);
-        assertEq(_withdrawalManager.leftoverShares(3),     0);
-        assertTrue(_withdrawalManager.isProcessed(3));
+        vm.prank(lp);
+        withdrawalManager.addShares(1);
 
-        assertEq(_withdrawalManager.totalShares(4),        5e18);
-        assertEq(_withdrawalManager.pendingWithdrawals(4), 1);
-        assertEq(_withdrawalManager.availableAssets(4),    0);
-        assertEq(_withdrawalManager.leftoverShares(4),     0);
-        assertTrue(!_withdrawalManager.isProcessed(4));
+        assertEq(withdrawalManager.exitCycleId(lp),     3);
+        assertEq(withdrawalManager.lockedShares(lp),    1);
+        assertEq(withdrawalManager.totalCycleShares(3), 1);
+        assertEq(withdrawalManager.totalCycleShares(5), 0);
 
-        // PERIOD 4: LP3 redeems shares.
-        vm.warp(START + 4 * DURATION);
+        assertEq(pool.balanceOf(lp), 1);
+        assertEq(pool.balanceOf(wm), 1);
 
-        lp3.withdrawalManager_redeemPosition(address(_withdrawalManager), 0);
+        vm.warp(start + 3 weeks);
+        vm.prank(lp);
+        withdrawalManager.addShares(0);
 
-        assertEq(_pool.balanceOf(address(lp1)),                0);
-        assertEq(_pool.balanceOf(address(lp2)),                0);
-        assertEq(_pool.balanceOf(address(lp3)),                0);
-        assertEq(_pool.balanceOf(address(_withdrawalManager)), 0);
+        assertEq(withdrawalManager.exitCycleId(lp),     6);
+        assertEq(withdrawalManager.lockedShares(lp),    1);
+        assertEq(withdrawalManager.totalCycleShares(3), 0);
+        assertEq(withdrawalManager.totalCycleShares(6), 1);
 
-        assertEq(_asset.balanceOf(address(lp1)),                2e18);
-        assertEq(_asset.balanceOf(address(lp2)),                8e18);
-        assertEq(_asset.balanceOf(address(lp3)),                5e18);
-        assertEq(_asset.balanceOf(address(_withdrawalManager)), 0);
+        assertEq(pool.balanceOf(lp), 1);
+        assertEq(pool.balanceOf(wm), 1);
+    }
 
-        assertEq(_withdrawalManager.lockedShares(address(lp1)), 0);
-        assertEq(_withdrawalManager.lockedShares(address(lp2)), 0);
-        assertEq(_withdrawalManager.lockedShares(address(lp3)), 0);
+    function test_addShares_failedTransfer() external {
+        vm.prank(lp);
+        vm.expectRevert("WM:AS:TRANSFER_FAIL");
+        withdrawalManager.addShares(3);
+    }
 
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp1)), 0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp2)), 0);
-        assertEq(_withdrawalManager.withdrawalCycleId(address(lp3)), 0);
+}
 
-        assertEq(_withdrawalManager.totalShares(2),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(2), 0);
-        assertEq(_withdrawalManager.availableAssets(2),    0);
-        assertEq(_withdrawalManager.leftoverShares(2),     0);
-        assertTrue(_withdrawalManager.isProcessed(2));
+contract RemoveSharesTests is WithdrawalManagerTestBase {
 
-        assertEq(_withdrawalManager.totalShares(3),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(3), 0);
-        assertEq(_withdrawalManager.availableAssets(3),    0);
-        assertEq(_withdrawalManager.leftoverShares(3),     0);
-        assertTrue(_withdrawalManager.isProcessed(3));
+    function setUp() public override {
+        super.setUp();
 
-        assertEq(_withdrawalManager.totalShares(4),        0);
-        assertEq(_withdrawalManager.pendingWithdrawals(4), 0);
-        assertEq(_withdrawalManager.availableAssets(4),    0);
-        assertEq(_withdrawalManager.leftoverShares(4),     0);
-        assertTrue(_withdrawalManager.isProcessed(4));
+        vm.startPrank(lp);
+        pool.mint(lp, 2);
+        pool.approve(address(withdrawalManager), 2);
+        vm.stopPrank();
+    }
+
+    function test_removeShares_pendingRequest() external {
+        vm.prank(lp);
+        withdrawalManager.addShares(1);
+
+        vm.warp(start + 2 weeks - 1 seconds);
+        vm.prank(lp);
+        vm.expectRevert("WM:RS:WITHDRAWAL_PENDING");
+        withdrawalManager.removeShares(1);
+    }
+
+    function test_removeShares_zeroShares() external {
+        vm.prank(lp);
+        withdrawalManager.addShares(1);
+
+        vm.warp(start + 2 weeks);
+        vm.prank(lp);
+        vm.expectRevert("WM:RS:SHARES_OOB");
+        withdrawalManager.removeShares(0);
+    }
+
+    function test_removeShares_sharesUnderflow() external {
+        vm.prank(lp);
+        withdrawalManager.addShares(1);
+
+        vm.warp(start + 2 weeks);
+        vm.prank(lp);
+        vm.expectRevert("WM:RS:SHARES_OOB");
+        withdrawalManager.removeShares(2);
+    }
+
+    function test_removeShares_decreaseRequest() external {
+        vm.prank(lp);
+        withdrawalManager.addShares(2);
+
+        assertEq(withdrawalManager.exitCycleId(lp),     3);
+        assertEq(withdrawalManager.lockedShares(lp),    2);
+        assertEq(withdrawalManager.totalCycleShares(3), 2);
+        assertEq(withdrawalManager.totalCycleShares(5), 0);
+
+        assertEq(pool.balanceOf(lp), 0);
+        assertEq(pool.balanceOf(wm), 2);
+
+        vm.warp(start + 2 weeks);
+        vm.prank(lp);
+        withdrawalManager.removeShares(1);
+
+        assertEq(withdrawalManager.exitCycleId(lp),     5);
+        assertEq(withdrawalManager.lockedShares(lp),    1);
+        assertEq(withdrawalManager.totalCycleShares(3), 0);
+        assertEq(withdrawalManager.totalCycleShares(5), 1);
+
+        assertEq(pool.balanceOf(lp), 1);
+        assertEq(pool.balanceOf(wm), 1);
+    }
+
+    function test_removeShares_cancelRequest() external {
+        vm.prank(lp);
+        withdrawalManager.addShares(2);
+
+        assertEq(withdrawalManager.exitCycleId(lp),     3);
+        assertEq(withdrawalManager.lockedShares(lp),    2);
+        assertEq(withdrawalManager.totalCycleShares(3), 2);
+        assertEq(withdrawalManager.totalCycleShares(5), 0);
+
+        assertEq(pool.balanceOf(lp), 0);
+        assertEq(pool.balanceOf(wm), 2);
+
+        vm.warp(start + 2 weeks);
+        vm.prank(lp);
+        withdrawalManager.removeShares(2);
+
+        assertEq(withdrawalManager.exitCycleId(lp),     0);
+        assertEq(withdrawalManager.lockedShares(lp),    0);
+        assertEq(withdrawalManager.totalCycleShares(3), 0);
+        assertEq(withdrawalManager.totalCycleShares(5), 0);
+
+        assertEq(pool.balanceOf(lp), 2);
+        assertEq(pool.balanceOf(wm), 0);
+    }
+
+    function test_removeShares_delayedUpdate() external {
+        vm.prank(lp);
+        withdrawalManager.addShares(2);
+
+        assertEq(withdrawalManager.exitCycleId(lp),     3);
+        assertEq(withdrawalManager.lockedShares(lp),    2);
+        assertEq(withdrawalManager.totalCycleShares(3), 2);
+        assertEq(withdrawalManager.totalCycleShares(5), 0);
+
+        assertEq(pool.balanceOf(lp), 0);
+        assertEq(pool.balanceOf(wm), 2);
+
+        vm.warp(start + 3 weeks);
+        vm.prank(lp);
+        withdrawalManager.removeShares(1);
+
+        assertEq(withdrawalManager.exitCycleId(lp),     6);
+        assertEq(withdrawalManager.lockedShares(lp),    1);
+        assertEq(withdrawalManager.totalCycleShares(3), 0);
+        assertEq(withdrawalManager.totalCycleShares(6), 1);
+
+        assertEq(pool.balanceOf(lp), 1);
+        assertEq(pool.balanceOf(wm), 1);
+    }
+
+    function test_removeShares_failedTransfer() external {
+        vm.prank(lp);
+        withdrawalManager.addShares(1);
+
+        pool.burn(address(withdrawalManager), 1);
+
+        vm.warp(start + 2 weeks);
+        vm.prank(lp);
+        vm.expectRevert("WM:RS:TRANSFER_FAIL");
+        withdrawalManager.removeShares(1);
+    }
+
+}
+
+contract WithdrawTests is WithdrawalManagerTestBase {
+
+    function setUp() public override {
+        super.setUp();
+
+        vm.startPrank(lp);
+        pool.mint(lp, 3);
+        pool.approve(address(withdrawalManager), 3);
+        vm.stopPrank();
+    }
+
+    function test_withdraw_notPool() external {
+        vm.expectRevert("WM:W:NOT_POOL");
+        withdrawalManager.withdraw(lp, 0);
+    }
+
+    function test_withdraw_noRequest() external {
+        vm.prank(address(pool));
+        vm.expectRevert("WM:W:NO_REQUEST");
+        withdrawalManager.withdraw(lp, 0);
+    }
+
+    function test_withdraw_preWindow() external {
+        vm.prank(lp);
+        withdrawalManager.addShares(1);
+
+        vm.warp(start + 2 weeks - 1);
+        vm.prank(address(pool));
+        vm.expectRevert("WM:W:NOT_IN_WINDOW");
+        withdrawalManager.withdraw(lp, 0);
+    }
+
+    function test_withdraw_postWindow() external {
+        vm.prank(lp);
+        withdrawalManager.addShares(1);
+
+        vm.warp(start + 2 weeks + 2 days);
+
+        vm.prank(address(pool));
+        vm.expectRevert("WM:W:NOT_IN_WINDOW");
+        withdrawalManager.withdraw(lp, 0);
+    }
+
+    function test_withdraw_fullWithdrawal() external {
+        asset.mint(address(pool), 2);
+
+        vm.prank(lp);
+        withdrawalManager.addShares(1);
+
+        assertEq(withdrawalManager.exitCycleId(lp),     3);
+        assertEq(withdrawalManager.lockedShares(lp),    1);
+        assertEq(withdrawalManager.totalCycleShares(3), 1);
+
+        assertEq(pool.balanceOf(lp), 2);
+        assertEq(pool.balanceOf(wm), 1);
+
+        assertEq(asset.balanceOf(lp),            0);
+        assertEq(asset.balanceOf(address(pool)), 2);
+
+        vm.warp(start + 2 weeks);
+        vm.prank(address(pool));
+        withdrawalManager.withdraw(lp, 0);
+
+        assertEq(withdrawalManager.exitCycleId(lp),     0);
+        assertEq(withdrawalManager.lockedShares(lp),    0);
+        assertEq(withdrawalManager.totalCycleShares(3), 0);
+
+        assertEq(pool.balanceOf(lp), 2);
+        assertEq(pool.balanceOf(wm), 0);
+
+        assertEq(asset.balanceOf(lp),            2);
+        assertEq(asset.balanceOf(address(pool)), 0);
+    }
+
+    function test_withdraw_noLiquidity() external {
+        vm.prank(lp);
+        withdrawalManager.addShares(1);
+
+        assertEq(withdrawalManager.exitCycleId(lp),     3);
+        assertEq(withdrawalManager.lockedShares(lp),    1);
+        assertEq(withdrawalManager.totalCycleShares(3), 1);
+        assertEq(withdrawalManager.totalCycleShares(4), 0);
+
+        assertEq(pool.balanceOf(lp), 2);
+        assertEq(pool.balanceOf(wm), 1);
+
+        assertEq(asset.balanceOf(lp),            0);
+        assertEq(asset.balanceOf(address(pool)), 0);
+
+        vm.warp(start + 2 weeks);
+        vm.prank(address(pool));
+        withdrawalManager.withdraw(lp, 0);
+
+        assertEq(withdrawalManager.exitCycleId(lp),     4);
+        assertEq(withdrawalManager.lockedShares(lp),    1);
+        assertEq(withdrawalManager.totalCycleShares(3), 0);
+        assertEq(withdrawalManager.totalCycleShares(4), 1);
+
+        assertEq(pool.balanceOf(lp), 2);
+        assertEq(pool.balanceOf(wm), 1);
+
+        assertEq(asset.balanceOf(lp),            0);
+        assertEq(asset.balanceOf(address(pool)), 0);
+    }
+
+    function test_withdraw_partialWithdrawal() external {
+        asset.mint(address(pool), 2);
+
+        vm.prank(lp);
+        withdrawalManager.addShares(2);
+
+        assertEq(withdrawalManager.exitCycleId(lp),     3);
+        assertEq(withdrawalManager.lockedShares(lp),    2);
+        assertEq(withdrawalManager.totalCycleShares(3), 2);
+        assertEq(withdrawalManager.totalCycleShares(4), 0);
+
+        assertEq(pool.balanceOf(lp), 1);
+        assertEq(pool.balanceOf(wm), 2);
+
+        assertEq(asset.balanceOf(lp),            0);
+        assertEq(asset.balanceOf(address(pool)), 2);
+
+        vm.warp(start + 2 weeks);
+        vm.prank(address(pool));
+        withdrawalManager.withdraw(lp, 0);
+
+        assertEq(withdrawalManager.exitCycleId(lp),     4);
+        assertEq(withdrawalManager.lockedShares(lp),    1);
+        assertEq(withdrawalManager.totalCycleShares(3), 0);
+        assertEq(withdrawalManager.totalCycleShares(4), 1);
+
+        assertEq(pool.balanceOf(lp), 1);
+        assertEq(pool.balanceOf(wm), 1);
+
+        assertEq(asset.balanceOf(lp),            2);
+        assertEq(asset.balanceOf(address(pool)), 0);
+    }
+
+    function test_withdraw_partialReduction() external {
+        asset.mint(address(pool), 2);
+
+        vm.prank(lp);
+        withdrawalManager.addShares(3);
+
+        assertEq(withdrawalManager.exitCycleId(lp),     3);
+        assertEq(withdrawalManager.lockedShares(lp),    3);
+        assertEq(withdrawalManager.totalCycleShares(3), 3);
+        assertEq(withdrawalManager.totalCycleShares(4), 0);
+
+        assertEq(pool.balanceOf(lp), 0);
+        assertEq(pool.balanceOf(wm), 3);
+
+        assertEq(asset.balanceOf(lp),            0);
+        assertEq(asset.balanceOf(address(pool)), 2);
+
+        vm.warp(start + 2 weeks);
+        vm.prank(address(pool));
+        withdrawalManager.withdraw(lp, 1);
+
+        assertEq(withdrawalManager.exitCycleId(lp),     4);
+        assertEq(withdrawalManager.lockedShares(lp),    1);
+        assertEq(withdrawalManager.totalCycleShares(3), 0);
+        assertEq(withdrawalManager.totalCycleShares(4), 1);
+
+        assertEq(pool.balanceOf(lp), 1);
+        assertEq(pool.balanceOf(wm), 1);
+
+        assertEq(asset.balanceOf(lp),            2);
+        assertEq(asset.balanceOf(address(pool)), 0);
+    }
+
+    function test_withdraw_partialCancellation() external {
+        asset.mint(address(pool), 2);
+
+        vm.prank(lp);
+        withdrawalManager.addShares(3);
+
+        assertEq(withdrawalManager.exitCycleId(lp),     3);
+        assertEq(withdrawalManager.lockedShares(lp),    3);
+        assertEq(withdrawalManager.totalCycleShares(3), 3);
+
+        assertEq(pool.balanceOf(lp), 0);
+        assertEq(pool.balanceOf(wm), 3);
+
+        assertEq(asset.balanceOf(lp),            0);
+        assertEq(asset.balanceOf(address(pool)), 2);
+
+        vm.warp(start + 2 weeks);
+        vm.prank(address(pool));
+        withdrawalManager.withdraw(lp, 2);
+
+        assertEq(withdrawalManager.exitCycleId(lp),     0);
+        assertEq(withdrawalManager.lockedShares(lp),    0);
+        assertEq(withdrawalManager.totalCycleShares(3), 0);
+
+        assertEq(pool.balanceOf(lp), 2);
+        assertEq(pool.balanceOf(wm), 0);
+
+        assertEq(asset.balanceOf(lp),            2);
+        assertEq(asset.balanceOf(address(pool)), 0);
+    }
+
+    function test_withdraw_partialOverflow() external {
+        asset.mint(address(pool), 2);
+
+        vm.prank(lp);
+        withdrawalManager.addShares(3);
+
+        assertEq(withdrawalManager.exitCycleId(lp),     3);
+        assertEq(withdrawalManager.lockedShares(lp),    3);
+        assertEq(withdrawalManager.totalCycleShares(3), 3);
+
+        assertEq(pool.balanceOf(lp), 0);
+        assertEq(pool.balanceOf(wm), 3);
+
+        assertEq(asset.balanceOf(lp),            0);
+        assertEq(asset.balanceOf(address(pool)), 2);
+
+        vm.warp(start + 2 weeks);
+        vm.prank(address(pool));
+        withdrawalManager.withdraw(lp, 3);  // One more share than available after redemption.
+
+        assertEq(withdrawalManager.exitCycleId(lp),     0);
+        assertEq(withdrawalManager.lockedShares(lp),    0);
+        assertEq(withdrawalManager.totalCycleShares(3), 0);
+
+        assertEq(pool.balanceOf(lp), 2);  // Instead of reverting, just gives max amount of LP tokens.
+        assertEq(pool.balanceOf(wm), 0);
+
+        assertEq(asset.balanceOf(lp),            2);
+        assertEq(asset.balanceOf(address(pool)), 0);
+    }
+
+    function test_withdraw_lostShares() external {
+        asset.mint(address(pool), 2);
+
+        vm.prank(lp);
+        withdrawalManager.addShares(1);
+
+        pool.burn(address(withdrawalManager), 1);
+
+        vm.warp(start + 2 weeks);
+        vm.prank(address(pool));
+        vm.expectRevert(ARITHMETIC_ERROR);
+        withdrawalManager.withdraw(lp, 0);
+    }
+
+    function test_withdraw_failedTransfer() external {
+        asset.mint(address(pool), 2);
+
+        vm.prank(lp);
+        withdrawalManager.addShares(2);
+
+        pool.burn(address(withdrawalManager), 1);
+
+        vm.warp(start + 2 weeks);
+        vm.prank(address(pool));
+        vm.expectRevert("WM:W:TRANSFER_FAIL");
+        withdrawalManager.withdraw(lp, 1);
     }
 
 }

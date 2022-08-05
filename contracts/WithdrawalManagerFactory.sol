@@ -1,23 +1,15 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity 0.8.7;
 
-import { IMapleProxyFactory, MapleProxyFactory } from "../modules/maple-proxy-factory/contracts/MapleProxyFactory.sol";
+import { MapleProxyFactory } from "../modules/maple-proxy-factory/contracts/MapleProxyFactory.sol";
 
-import { IWithdrawalManagerFactory } from "./interfaces/IWithdrawalManagerFactory.sol";
+contract WithdrawalManagerFactory is MapleProxyFactory {
 
-/// @title WithdrawalManagerFactory deploys WithdrawalManager instances.
-contract WithdrawalManagerFactory is IWithdrawalManagerFactory, MapleProxyFactory {
+    mapping(address => bool) public isInstance;
 
-    mapping(address => bool) public override isInstance;
+    constructor(address globals_) MapleProxyFactory(globals_) {}
 
-    /// @param mapleGlobals_ The address of a Maple Globals contract.
-    constructor(address mapleGlobals_) MapleProxyFactory(mapleGlobals_) {}
-
-    function createInstance(bytes calldata arguments_, bytes32 salt_)
-        override(IMapleProxyFactory, MapleProxyFactory) public returns (
-            address instance_
-        )
-    {
+    function createInstance(bytes calldata arguments_, bytes32 salt_) public override(MapleProxyFactory) returns (address instance_) {
         isInstance[instance_ = super.createInstance(arguments_, salt_)] = true;
     }
 
