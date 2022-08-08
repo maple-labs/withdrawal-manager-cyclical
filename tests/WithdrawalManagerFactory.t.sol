@@ -37,7 +37,21 @@ contract WithdrawalManagerFactoryTests is TestUtils {
         factory = new WithdrawalManagerFactory(address(globals));
         factory.registerImplementation(1, implementation, initializer);
         factory.setDefaultVersion(1);
+        
+        globals.setValidPoolDeployer(address(this), true);
         vm.stopPrank();
+    }
+
+    function test_createInstance_notPoolDeployer() external {
+        bytes memory calldata_ = abi.encode(address(pool), 1, 1);
+
+        MockGlobals(globals).setValidPoolDeployer(address(this), false);
+        vm.expectRevert("WMF:CI:NOT_DEPLOYER");
+        factory.createInstance(calldata_, "SALT");
+
+        MockGlobals(globals).setValidPoolDeployer(address(this), true);
+        factory.createInstance(calldata_, "SALT");
+
     }
 
     function test_createInstance_zeroPool() external {

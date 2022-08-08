@@ -7,8 +7,14 @@ contract MockGlobals {
 
     address public governor;
 
+    mapping(address => bool) public isPoolDeployer;
+
     constructor (address governor_) {
         governor = governor_;
+    }
+
+    function setValidPoolDeployer(address poolDeployer_, bool isValid_) external {
+        isPoolDeployer[poolDeployer_] = isValid_;
     }
 
 }
@@ -87,3 +93,4 @@ contract MockWithdrawalManagerMigrator {
     }
 
 }
+
