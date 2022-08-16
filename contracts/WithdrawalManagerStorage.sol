@@ -4,6 +4,7 @@ pragma solidity 0.8.7;
 abstract contract WithdrawalManagerStorage {
 
     address public pool;
+    address public poolManager;
 
     uint256 public latestConfigId;
 

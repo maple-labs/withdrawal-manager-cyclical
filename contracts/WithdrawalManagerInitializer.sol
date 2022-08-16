@@ -3,6 +3,8 @@ pragma solidity 0.8.7;
 
 import { MapleProxiedInternals } from "../modules/maple-proxy-factory/contracts/MapleProxiedInternals.sol";
 
+import { IPoolLike } from "./interfaces/Interfaces.sol";
+
 import { WithdrawalManagerStorage } from "./WithdrawalManagerStorage.sol";
 
 contract WithdrawalManagerInitializer is WithdrawalManagerStorage, MapleProxiedInternals {
@@ -18,7 +20,8 @@ contract WithdrawalManagerInitializer is WithdrawalManagerStorage, MapleProxiedI
         require(windowDuration_ != 0,              "WMI:ZERO_WINDOW");
         require(windowDuration_ <= cycleDuration_, "WMI:WINDOW_OOB");
 
-        pool = pool_;
+        pool        = pool_;
+        poolManager = IPoolLike(pool_).manager();
 
         cycleConfigs[0] = CycleConfig({
             initialCycleId:   1,

@@ -107,9 +107,11 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
 
     // TODO: Add checks for protocol pause?
 
-    function addShares(uint256 shares_) external {
-        uint256 exitCycleId_  = exitCycleId[msg.sender];
-        uint256 lockedShares_ = lockedShares[msg.sender];
+    function addShares(uint256 shares_, address owner_) external {
+        require(msg.sender == poolManager, "WM:AS:NOT_POOL_MANAGER");
+
+        uint256 exitCycleId_  = exitCycleId[owner_];
+        uint256 lockedShares_ = lockedShares[owner_];
 
         CycleConfig memory config_ = _getConfigAtId(exitCycleId_);
 
@@ -126,15 +128,17 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
         exitCycleId_ = _getCurrentCycleId(config_) + 2;
         totalCycleShares[exitCycleId_] += lockedShares_;
 
-        exitCycleId[msg.sender]  = exitCycleId_;
-        lockedShares[msg.sender] = lockedShares_;
+        exitCycleId[owner_]  = exitCycleId_;
+        lockedShares[owner_] = lockedShares_;
 
-        require(ERC20Helper.transferFrom(pool, msg.sender, address(this), shares_), "WM:AS:TRANSFER_FAIL");
+        require(ERC20Helper.transferFrom(pool, msg.sender, address(this), shares_), "WM:AS:TRANSFER_FROM_FAIL");
     }
 
-    function removeShares(uint256 shares_) external {
-        uint256 exitCycleId_  = exitCycleId[msg.sender];
-        uint256 lockedShares_ = lockedShares[msg.sender];
+    function removeShares(uint256 shares_, address owner_) external returns (uint256 sharesReturned_) {
+        require(msg.sender == poolManager, "WM:RS:NOT_POOL_MANAGER");
+
+        uint256 exitCycleId_  = exitCycleId[owner_];
+        uint256 lockedShares_ = lockedShares[owner_];
 
         CycleConfig memory config_ = _getConfigAtId(exitCycleId_);
 
@@ -154,53 +158,38 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
         }
 
         // Update the withdrawal request.
-        exitCycleId[msg.sender]  = exitCycleId_;
-        lockedShares[msg.sender] = lockedShares_;
+        exitCycleId[owner_]  = exitCycleId_;
+        lockedShares[owner_] = lockedShares_;
 
-        require(ERC20Helper.transfer(pool, msg.sender, shares_), "WM:RS:TRANSFER_FAIL");
+        sharesReturned_ = shares_;
+
+        require(ERC20Helper.transfer(pool, owner_, shares_), "WM:RS:TRANSFER_FAIL");
     }
 
-    function withdraw(address account_, uint256 maxSharesToRemove_) external returns (uint256 withdrawnAssets_) {
+    function processExit(address account_, uint256 requestedShares_) external returns (uint256 redeemableShares_, uint256 resultingAssets_) {
+        require(msg.sender == poolManager, "WM:PE:NOT_PM");
+
         uint256 exitCycleId_  = exitCycleId[account_];
         uint256 lockedShares_ = lockedShares[account_];
 
+        require(requestedShares_ <= lockedShares_, "WM:PE:REQUESTED_SHARES_OOB");
+
+        uint256 sharesToReturn_ = lockedShares_ - requestedShares_;
+
         CycleConfig memory config_ = _getConfigAtId(exitCycleId_);
 
-        require(msg.sender == pool, "WM:W:NOT_POOL");
-        require(lockedShares_ != 0, "WM:W:NO_REQUEST");
+        bool partialLiquidity_;
 
-        uint256 windowStart_ = _getWindowStart(config_, exitCycleId_);
+        ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = _previewRedeem(account_, requestedShares_, lockedShares_, exitCycleId_, config_);
 
-        require(
-            block.timestamp >= windowStart_ &&
-            block.timestamp < windowStart_ + config_.windowDuration,
-            "WM:W:NOT_IN_WINDOW"
-        );
-
-        // Calculate how much liquidity is available, and how much is required to allow redemption of shares.
-        uint256 availableLiquidity_ = IERC20Like(asset()).balanceOf(address(pool));
-        uint256 requestedLiquidity_ = IPoolLike(pool).previewRedeem(lockedShares_);
-        bool    partialLiquidity_   = availableLiquidity_ < requestedLiquidity_;
-
-        // Redeem as many shares as possible while maintaining a pro-rata distribution.
-        uint256 redeemableShares_ =
-            partialLiquidity_
-                ? lockedShares_ * availableLiquidity_ / requestedLiquidity_
-                : lockedShares_;
-
-        withdrawnAssets_ = IPoolLike(pool).redeem(redeemableShares_, account_, address(this));
+        // Transfer both returned shares and redeemable shares, burn only the redeemable shares in the pool.
+        require(ERC20Helper.transfer(pool, account_, redeemableShares_ + sharesToReturn_), "WM:PE:TRANSFER_FAIL");
 
         // Reduce totalCurrentShares by the shares that were used in the old cycle.
         totalCycleShares[exitCycleId_] -= lockedShares_;
 
-        // Reduce the locked shares by the amount redeemed.
-        lockedShares_ -= redeemableShares_;
-
-        // Calculate maximum available shares to remove based on request.
-        uint256 sharesToRemove_ = lockedShares_ < maxSharesToRemove_ ? lockedShares_ : maxSharesToRemove_;
-
-        // Calculate the amount of locked shares that will remain after requested shares are removed.
-        lockedShares_ -= sharesToRemove_;
+        // Reduce the locked shares by the total amount transferred back to the LP.
+        lockedShares_ -= (redeemableShares_ + sharesToReturn_);
 
         // If there are any remaining shares, move them to the next cycle.
         // In case of partial liquidity move shares only one cycle forward (instead of two).
@@ -214,9 +203,6 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
         // Update the locked shares and cycle for the account, setting to zero if no shares are remaining.
         lockedShares[account_] = lockedShares_;
         exitCycleId[account_]  = exitCycleId_;
-
-        // Transfer the shares that were marked for removal to the account.
-        require(ERC20Helper.transfer(pool, account_, sharesToRemove_), "WM:W:TRANSFER_FAIL");
     }
 
     /*************************/
@@ -249,8 +235,51 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
         cycleId_ = config_.initialCycleId + (block.timestamp - config_.initialCycleTime) / config_.cycleDuration;
     }
 
+    function _getRedeemableAmounts(uint256 shares_, address owner_) internal view returns (uint256 redeemableShares_, uint256 resultingAssets_, bool partialLiquidity_) {
+        IPoolManagerLike poolManager_ = IPoolManagerLike(poolManager);
+
+        // Calculate how much liquidity is available, and how much is required to allow redemption of shares.
+        uint256 availableLiquidity_      = IERC20Like(asset()).balanceOf(pool);
+        uint256 totalAssetsWithLosses_   = poolManager_.totalAssets() - poolManager_.unrealizedLosses();
+        uint256 totalSupply_             = IPoolLike(pool).totalSupply();
+        uint256 totalRequestedLiquidity_ = totalCycleShares[exitCycleId[owner_]] * totalAssetsWithLosses_ / totalSupply_;
+
+        partialLiquidity_ = availableLiquidity_ < totalRequestedLiquidity_;
+
+        // Calculate maximum redeemable shares while maintaining a pro-rata distribution.
+        redeemableShares_ =
+            partialLiquidity_
+                ? shares_ * availableLiquidity_ / totalRequestedLiquidity_  // 200 * 200 / 600 = 0
+                : shares_;
+
+        resultingAssets_ = totalAssetsWithLosses_ * redeemableShares_ / totalSupply_;
+    }
+
     function _getWindowStart(CycleConfig memory config_, uint256 cycleId_) internal pure returns (uint256 cycleStart_) {
         cycleStart_ = config_.initialCycleTime + (cycleId_ - config_.initialCycleId) * config_.cycleDuration;
+    }
+
+    function _previewRedeem(
+        address owner_,
+        uint256 shares_,
+        uint256 lockedShares_,
+        uint256 exitCycleId_,
+        CycleConfig memory config_
+    )
+        internal view returns (uint256 redeemableShares_, uint256 resultingAssets_, bool partialLiquidity_)
+    {
+        require(lockedShares_ != 0,       "WM:PR:NO_REQUEST");
+        require(shares_ <= lockedShares_, "WM:PR:SHARES_OOB");
+
+        uint256 windowStart_ = _getWindowStart(config_, exitCycleId_);
+
+        require(
+            block.timestamp >= windowStart_ &&
+            block.timestamp < windowStart_ + config_.windowDuration,
+            "WM:PR:NOT_IN_WINDOW"
+        );
+
+        ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = _getRedeemableAmounts(shares_, owner_);
     }
 
     /**********************/
@@ -258,7 +287,7 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
     /**********************/
 
     function admin() public view returns (address admin_) {
-        admin_ = IPoolManagerLike(manager()).admin();
+        admin_ = IPoolManagerLike(poolManager).admin();
     }
 
     function asset() public view returns (address asset_) {
@@ -273,8 +302,17 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
         implementation_ = _implementation();
     }
 
-    function manager() public view returns (address manager_) {
-        manager_ = IPoolLike(pool).manager();
+    function isInExitWindow(address owner_) external view returns (bool isInExitWindow_) {
+        uint256 exitCycleId_       = exitCycleId[owner_];
+        CycleConfig memory config_ = _getConfigAtId(exitCycleId_);
+        uint256 windowStart_       = _getWindowStart(config_, exitCycleId_);
+
+        isInExitWindow_ = block.timestamp >= windowStart_ && block.timestamp < windowStart_ + config_.windowDuration;
+    }
+
+    function previewRedeem(address owner_, uint256 shares_) external view returns (uint256 redeemableShares_, uint256 resultingAssets_) {
+        uint256 exitCycleId_ = exitCycleId[owner_];
+        ( redeemableShares_, resultingAssets_, ) = _previewRedeem(owner_, shares_, lockedShares[owner_], exitCycleId_, _getConfigAtId(exitCycleId_));
     }
 
 }

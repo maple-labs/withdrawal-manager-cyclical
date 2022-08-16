@@ -21,16 +21,15 @@ contract MockGlobals {
 
 contract MockPool is MockERC20 {
 
-    address poolDelegate;
+    address public manager;
+    address public poolDelegate;
 
     uint256 sharePrice;
 
-    MockERC20       _asset;
-    MockPoolManager _manager;
+    MockERC20 _asset;
 
     constructor(string memory name_, string memory symbol_, uint8 decimals_, address asset_, address poolDelegate_) MockERC20(name_, symbol_, decimals_) {
-        _asset   = MockERC20(asset_);
-        _manager = new MockPoolManager(address(this), poolDelegate_);
+        _asset = MockERC20(asset_);
 
         poolDelegate = poolDelegate_;
         sharePrice   = 1;
@@ -44,10 +43,6 @@ contract MockPool is MockERC20 {
         shares_ = assets_;
         balanceOf[receiver_] += shares_;
         _asset.transferFrom(msg.sender, address(this), assets_);
-    }
-
-    function manager() external view returns (address manager_) {
-        manager_ = address(_manager);
     }
 
     function maxRedeem(address account_) external view returns (uint256 maxShares_) {
@@ -70,6 +65,10 @@ contract MockPool is MockERC20 {
         sharePrice = sharePrice_;
     }
 
+    function __setPoolManager(address poolManager_) external {
+        manager = poolManager_;
+    }
+
 }
 
 contract MockPoolManager {
@@ -77,9 +76,20 @@ contract MockPoolManager {
     address public admin;
     address public pool;
 
+    uint256 public totalAssets;
+    uint256 public unrealizedLosses;
+
     constructor(address pool_, address admin_) {
-        pool = pool_;
+        pool  = pool_;
         admin = admin_;
+    }
+
+    function __setTotalAssets(uint256 totalAssets_) external {
+        totalAssets = totalAssets_;
+    }
+
+    function __setUnrealizedLosses(uint256 unrealizedLosses_) external {
+        unrealizedLosses = unrealizedLosses_;
     }
 
 }
