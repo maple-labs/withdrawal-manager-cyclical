@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity 0.8.7;
 
+import { console } from '../modules/contract-test-utils/contracts/log.sol';
+
 import { ERC20Helper }           from "../modules/erc20-helper/src/ERC20Helper.sol";
 import { IMapleProxyFactory }    from "../modules/maple-proxy-factory/contracts/interfaces/IMapleProxyFactory.sol";
 import { MapleProxiedInternals } from "../modules/maple-proxy-factory/contracts/MapleProxiedInternals.sol";
@@ -240,7 +242,7 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
         cycleId_ = config_.initialCycleId + (block.timestamp - config_.initialCycleTime) / config_.cycleDuration;
     }
 
-    function _getRedeemableAmounts(uint256 shares_, address owner_) internal view returns (uint256 redeemableShares_, uint256 resultingAssets_, bool partialLiquidity_) {
+    function _getRedeemableAmounts(uint256 shares_, uint256 lockedShares_, address owner_) internal view returns (uint256 redeemableShares_, uint256 resultingAssets_, bool partialLiquidity_) {
         IPoolManagerLike poolManager_ = IPoolManagerLike(poolManager);
 
         // Calculate how much liquidity is available, and how much is required to allow redemption of shares.
@@ -254,8 +256,10 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
         // Calculate maximum redeemable shares while maintaining a pro-rata distribution.
         redeemableShares_ =
             partialLiquidity_
-                ? shares_ * availableLiquidity_ / totalRequestedLiquidity_  // 200 * 200 / 600 = 0
+                ? lockedShares_ * availableLiquidity_ / totalRequestedLiquidity_  // 200 * 200 / 600 = 0
                 : shares_;
+
+        redeemableShares_ = redeemableShares_ > shares_ ? shares_ : redeemableShares_;
 
         resultingAssets_ = totalAssetsWithLosses_ * redeemableShares_ / totalSupply_;
     }
@@ -284,7 +288,7 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
             "WM:PR:NOT_IN_WINDOW"
         );
 
-        ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = _getRedeemableAmounts(shares_, owner_);
+        ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = _getRedeemableAmounts(shares_, lockedShares_, owner_);
     }
 
     /**********************/
