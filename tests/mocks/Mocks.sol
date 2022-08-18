@@ -5,6 +5,8 @@ import { MockERC20 } from "../../modules/erc20/contracts/test/mocks/MockERC20.so
 
 contract MockGlobals {
 
+    bool internal _isValidScheduledCall;
+
     address public governor;
 
     mapping(address => bool) public isPoolDeployer;
@@ -13,9 +15,19 @@ contract MockGlobals {
         governor = governor_;
     }
 
+    function isValidScheduledCall(address, address, bytes32, bytes calldata) external view returns (bool isValid_) {
+        isValid_ = _isValidScheduledCall;
+    }
+
+    function __setIsValidScheduledCall(bool isValid_) external {
+        _isValidScheduledCall = isValid_;
+    }
+
     function setValidPoolDeployer(address poolDeployer_, bool isValid_) external {
         isPoolDeployer[poolDeployer_] = isValid_;
     }
+
+    function unscheduleCall(address, bytes32, bytes calldata) external {}
 
 }
 
@@ -74,14 +86,16 @@ contract MockPool is MockERC20 {
 contract MockPoolManager {
 
     address public admin;
+    address public globals;
     address public pool;
 
     uint256 public totalAssets;
     uint256 public unrealizedLosses;
 
-    constructor(address pool_, address admin_) {
-        pool  = pool_;
-        admin = admin_;
+    constructor(address pool_, address admin_, address globals_) {
+        admin   = admin_;
+        globals = globals_;
+        pool    = pool_;
     }
 
     function __setTotalAssets(uint256 totalAssets_) external {

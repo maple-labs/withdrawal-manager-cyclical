@@ -5,7 +5,7 @@ import { ERC20Helper }           from "../modules/erc20-helper/src/ERC20Helper.s
 import { IMapleProxyFactory }    from "../modules/maple-proxy-factory/contracts/interfaces/IMapleProxyFactory.sol";
 import { MapleProxiedInternals } from "../modules/maple-proxy-factory/contracts/MapleProxiedInternals.sol";
 
-import { IERC20Like, IPoolLike, IPoolManagerLike } from "./interfaces/Interfaces.sol";
+import { IERC20Like, IMapleGlobalsLike, IPoolLike, IPoolManagerLike } from "./interfaces/Interfaces.sol";
 
 import { WithdrawalManagerStorage } from "./WithdrawalManagerStorage.sol";
 
@@ -62,6 +62,11 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
     function upgrade(uint256 version_, bytes calldata arguments_) external {
         require(msg.sender == admin(), "WM:U:NOT_ADMIN");
 
+        IMapleGlobalsLike mapleGlobals = IMapleGlobalsLike(IPoolManagerLike(poolManager).globals());
+
+        require(mapleGlobals.isValidScheduledCall(msg.sender, address(this), "WM:UPGRADE", msg.data), "WM:U:NOT_SCHEDULED");
+
+        mapleGlobals.unscheduleCall(msg.sender, "WM:UPGRADE", msg.data);
         IMapleProxyFactory(_factory()).upgradeInstance(version_, arguments_);
     }
 

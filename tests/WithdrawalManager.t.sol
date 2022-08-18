@@ -47,7 +47,7 @@ contract WithdrawalManagerTestBase is TestUtils {
         globals     = new MockGlobals(address(governor));
         asset       = new MockERC20("Wrapped Ether", "WETH", 18);
         pool        = new MockPool("Maple Pool", "MP-WETH", 18, address(asset), admin);
-        poolManager = new MockPoolManager(address(pool), admin);
+        poolManager = new MockPoolManager(address(pool), admin, address(globals));
 
         pool.__setPoolManager(address(poolManager));
 
@@ -180,7 +180,14 @@ contract UpgradeTests is WithdrawalManagerTestBase {
         withdrawalManager.upgrade(2, "");
     }
 
+    function test_upgrade_notScheduled() external {
+        vm.prank(admin);
+        vm.expectRevert("WM:U:NOT_SCHEDULED");
+        withdrawalManager.upgrade(2, "");
+    }
+
     function test_upgrade_upgradeFailed() external {
+        MockGlobals(globals).__setIsValidScheduledCall(true);
         vm.prank(admin);
         vm.expectRevert("MPF:UI:FAILED");
         withdrawalManager.upgrade(2, "1");
@@ -188,13 +195,12 @@ contract UpgradeTests is WithdrawalManagerTestBase {
 
     function test_upgrade_success() external {
         assertEq(withdrawalManager.implementation(), implementation);
-        assertEq(withdrawalManager.pool(),           address(pool));
 
+        MockGlobals(globals).__setIsValidScheduledCall(true);
         vm.prank(admin);
         withdrawalManager.upgrade(2, abi.encode(address(0)));
 
         assertEq(withdrawalManager.implementation(), newImplementation);
-        assertEq(withdrawalManager.pool(),           address(0));
     }
 
 }

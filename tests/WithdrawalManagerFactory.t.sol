@@ -37,7 +37,7 @@ contract WithdrawalManagerFactoryTests is TestUtils {
         factory = new WithdrawalManagerFactory(address(globals));
         factory.registerImplementation(1, implementation, initializer);
         factory.setDefaultVersion(1);
-        
+
         globals.setValidPoolDeployer(address(this), true);
         vm.stopPrank();
     }
