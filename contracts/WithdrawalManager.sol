@@ -310,6 +310,22 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
         isInExitWindow_ = block.timestamp >= windowStart_ && block.timestamp < windowStart_ + config_.windowDuration;
     }
 
+    function lockedLiquidity() external view returns (uint256 lockedLiquidity_) {
+        CycleConfig memory config_ = _getCurrentConfig();
+
+        uint256 exitCycleId_ = _getCurrentCycleId(config_);
+        uint256 windowStart_ = _getWindowStart(config_, exitCycleId_);
+        uint256 windowEnd_   = windowStart_ + config_.windowDuration;
+
+        if (block.timestamp >= windowStart_ && block.timestamp < windowEnd_) {
+            IPoolManagerLike poolManager_  = IPoolManagerLike(poolManager);
+            uint256 totalAssetsWithLosses_ = poolManager_.totalAssets() - poolManager_.unrealizedLosses();
+            uint256 totalSupply_           = IPoolLike(pool).totalSupply();
+
+            lockedLiquidity_ = totalCycleShares[exitCycleId_] * totalAssetsWithLosses_ / totalSupply_;
+        }
+    }
+
     function previewRedeem(address owner_, uint256 shares_) external view returns (uint256 redeemableShares_, uint256 resultingAssets_) {
         uint256 exitCycleId_ = exitCycleId[owner_];
         ( redeemableShares_, resultingAssets_, ) = _previewRedeem(owner_, shares_, lockedShares[owner_], exitCycleId_, _getConfigAtId(exitCycleId_));

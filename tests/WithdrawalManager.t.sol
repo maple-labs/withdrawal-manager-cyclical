@@ -954,3 +954,64 @@ contract ProcessExitTests is WithdrawalManagerTestBase {
     }
 
 }
+
+contract LockedLiquidityTests is WithdrawalManagerTestBase {
+
+    address pm;
+
+    function setUp() public override {
+        super.setUp();
+
+        pm = address(poolManager);
+
+        vm.startPrank(pm);
+        pool.mint(pm, 1);
+        pool.approve(address(withdrawalManager), 1);
+        withdrawalManager.addShares(1, lp);
+        vm.stopPrank();
+
+        poolManager.__setTotalAssets(1);
+    }
+
+    function test_lockedLiquidity_beforeWindow() external {
+        vm.warp(start + 2 weeks - 1);
+        assertEq(withdrawalManager.lockedLiquidity(), 0);
+    }
+
+    function test_lockedLiquidity_afterWindow() external {
+        vm.warp(start + 2 weeks + 2 days);
+        assertEq(withdrawalManager.lockedLiquidity(), 0);
+    }
+
+    function test_lockedLiquidity_duringWindow() external {
+        vm.warp(start + 2 weeks);
+        assertEq(withdrawalManager.lockedLiquidity(), 1);
+
+        vm.warp(start + 2 weeks + 2 days - 1);
+        assertEq(withdrawalManager.lockedLiquidity(), 1);
+    }
+
+    function test_lockedLiquidity_duringWindowWithdrawal() external {
+        vm.warp(start + 2 weeks);
+        assertEq(withdrawalManager.lockedLiquidity(), 1);
+
+        vm.prank(pm);
+        withdrawalManager.processExit(lp, 1);
+
+        assertEq(withdrawalManager.lockedLiquidity(), 0);
+    }
+
+    function test_lockedLiquidity_unrealizedLosses() external {
+        poolManager.__setTotalAssets(2);
+        poolManager.__setUnrealizedLosses(1);
+
+        vm.warp(start + 2 weeks);
+        assertEq(withdrawalManager.lockedLiquidity(), 1);
+
+        vm.prank(pm);
+        withdrawalManager.processExit(lp, 1);
+
+        assertEq(withdrawalManager.lockedLiquidity(), 0);
+    }
+
+}
