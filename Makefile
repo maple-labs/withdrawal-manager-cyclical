@@ -7,6 +7,9 @@ update:
 build:
 	@scripts/build.sh
 
+release:
+	@scripts/release.sh
+
 test:
 	@scripts/test.sh
 
