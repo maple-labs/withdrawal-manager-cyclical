@@ -179,24 +179,22 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
         uint256 exitCycleId_  = exitCycleId[account_];
         uint256 lockedShares_ = lockedShares[account_];
 
-        require(requestedShares_ <= lockedShares_, "WM:PE:REQUESTED_SHARES_OOB");
-
-        uint256 sharesToReturn_ = lockedShares_ - requestedShares_;
+        require(requestedShares_ == lockedShares_, "WM:PE:INVALID_SHARES");
 
         CycleConfig memory config_ = _getConfigAtId(exitCycleId_);
 
         bool partialLiquidity_;
 
-        ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = _previewRedeem(account_, requestedShares_, lockedShares_, exitCycleId_, config_);
+        ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = _previewRedeem(account_, lockedShares_, exitCycleId_, config_);
 
         // Transfer both returned shares and redeemable shares, burn only the redeemable shares in the pool.
-        require(ERC20Helper.transfer(pool, account_, redeemableShares_ + sharesToReturn_), "WM:PE:TRANSFER_FAIL");
+        require(ERC20Helper.transfer(pool, account_, redeemableShares_), "WM:PE:TRANSFER_FAIL");
 
         // Reduce totalCurrentShares by the shares that were used in the old cycle.
         totalCycleShares[exitCycleId_] -= lockedShares_;
 
         // Reduce the locked shares by the total amount transferred back to the LP.
-        lockedShares_ -= (redeemableShares_ + sharesToReturn_);
+        lockedShares_ -= redeemableShares_;
 
         // If there are any remaining shares, move them to the next cycle.
         // In case of partial liquidity move shares only one cycle forward (instead of two).
@@ -242,7 +240,7 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
         cycleId_ = config_.initialCycleId + (block.timestamp - config_.initialCycleTime) / config_.cycleDuration;
     }
 
-    function _getRedeemableAmounts(uint256 shares_, uint256 lockedShares_, address owner_) internal view returns (uint256 redeemableShares_, uint256 resultingAssets_, bool partialLiquidity_) {
+    function _getRedeemableAmounts(uint256 lockedShares_, address owner_) internal view returns (uint256 redeemableShares_, uint256 resultingAssets_, bool partialLiquidity_) {
         IPoolManagerLike poolManager_ = IPoolManagerLike(poolManager);
 
         // Calculate how much liquidity is available, and how much is required to allow redemption of shares.
@@ -256,10 +254,8 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
         // Calculate maximum redeemable shares while maintaining a pro-rata distribution.
         redeemableShares_ =
             partialLiquidity_
-                ? lockedShares_ * availableLiquidity_ / totalRequestedLiquidity_  // 200 * 200 / 600 = 0
-                : shares_;
-
-        redeemableShares_ = redeemableShares_ > shares_ ? shares_ : redeemableShares_;
+                ? lockedShares_ * availableLiquidity_ / totalRequestedLiquidity_
+                : lockedShares_;
 
         resultingAssets_ = totalAssetsWithLosses_ * redeemableShares_ / totalSupply_;
     }
@@ -270,15 +266,13 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
 
     function _previewRedeem(
         address owner_,
-        uint256 shares_,
         uint256 lockedShares_,
         uint256 exitCycleId_,
         CycleConfig memory config_
     )
         internal view returns (uint256 redeemableShares_, uint256 resultingAssets_, bool partialLiquidity_)
     {
-        require(lockedShares_ != 0,       "WM:PR:NO_REQUEST");
-        require(shares_ <= lockedShares_, "WM:PR:SHARES_OOB");
+        require(lockedShares_ != 0, "WM:PR:NO_REQUEST");
 
         uint256 windowStart_ = _getWindowStart(config_, exitCycleId_);
 
@@ -288,7 +282,7 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
             "WM:PR:NOT_IN_WINDOW"
         );
 
-        ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = _getRedeemableAmounts(shares_, lockedShares_, owner_);
+        ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = _getRedeemableAmounts(lockedShares_, owner_);
     }
 
     /**********************/
@@ -337,7 +331,10 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
 
     function previewRedeem(address owner_, uint256 shares_) external view returns (uint256 redeemableShares_, uint256 resultingAssets_) {
         uint256 exitCycleId_ = exitCycleId[owner_];
-        ( redeemableShares_, resultingAssets_, ) = _previewRedeem(owner_, shares_, lockedShares[owner_], exitCycleId_, _getConfigAtId(exitCycleId_));
+
+        require(shares_ == lockedShares[owner_], "WM:PE:INVALID_SHARES");
+
+        ( redeemableShares_, resultingAssets_, ) = _previewRedeem(owner_, shares_, exitCycleId_, _getConfigAtId(exitCycleId_));
     }
 
 }
