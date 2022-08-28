@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity 0.8.7;
 
-import { console } from '../modules/contract-test-utils/contracts/log.sol';
-
 import { ERC20Helper }           from "../modules/erc20-helper/src/ERC20Helper.sol";
 import { IMapleProxyFactory }    from "../modules/maple-proxy-factory/contracts/interfaces/IMapleProxyFactory.sol";
 import { MapleProxiedInternals } from "../modules/maple-proxy-factory/contracts/MapleProxiedInternals.sol";
@@ -57,7 +55,6 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
 
     function setImplementation(address implementation_) external {
         require(msg.sender == _factory(), "WM:SI:NOT_FACTORY");
-
         _setImplementation(implementation_);
     }
 
@@ -82,6 +79,7 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
         require(msg.sender == admin(),             "WM:SEC:NOT_ADMIN");
         require(windowDuration_ != 0,              "WM:SEC:ZERO_WINDOW");
         require(windowDuration_ <= cycleDuration_, "WM:SEC:WINDOW_OOB");
+
         require(
             cycleDuration_  != config_.cycleDuration ||
             windowDuration_ != config_.windowDuration,
@@ -96,6 +94,7 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
         // If the latest config has already started, add a new config.
         // Otherwise, the existing pending config will be overwritten.
         uint256 latestConfigId_ = latestConfigId;
+
         if (block.timestamp >= cycleConfigs[latestConfigId_].initialCycleTime) {
             latestConfigId_ = ++latestConfigId;
         }
@@ -220,7 +219,7 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
         if (configId_ == 0) return cycleConfigs[configId_];
 
         while (cycleId_ < cycleConfigs[configId_].initialCycleId) {
-            configId_--;
+            --configId_;
         }
 
         config_ = cycleConfigs[configId_];
@@ -309,8 +308,7 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
         uint256 exitCycleId_       = exitCycleId[owner_];
         CycleConfig memory config_ = _getConfigAtId(exitCycleId_);
         uint256 windowStart_       = _getWindowStart(config_, exitCycleId_);
-
-        isInExitWindow_ = block.timestamp >= windowStart_ && block.timestamp < windowStart_ + config_.windowDuration;
+        isInExitWindow_            = block.timestamp >= windowStart_ && block.timestamp < windowStart_ + config_.windowDuration;
     }
 
     function lockedLiquidity() external view returns (uint256 lockedLiquidity_) {
