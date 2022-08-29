@@ -7,9 +7,11 @@ import { MapleProxiedInternals } from "../modules/maple-proxy-factory/contracts/
 
 import { IERC20Like, IMapleGlobalsLike, IPoolLike, IPoolManagerLike } from "./interfaces/Interfaces.sol";
 
+import { IWithdrawalManager } from "./interfaces/IWithdrawalManager.sol";
+
 import { WithdrawalManagerStorage } from "./WithdrawalManagerStorage.sol";
 
-contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
+contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, MapleProxiedInternals {
 
     /**
      *    **************************
@@ -48,17 +50,17 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
     /*** Proxy Functions ***/
     /***********************/
 
-    function migrate(address migrator_, bytes calldata arguments_) external {
+    function migrate(address migrator_, bytes calldata arguments_) external override {
         require(msg.sender == _factory(),        "WM:M:NOT_FACTORY");
         require(_migrate(migrator_, arguments_), "WM:M:FAILED");
     }
 
-    function setImplementation(address implementation_) external {
+    function setImplementation(address implementation_) external override {
         require(msg.sender == _factory(), "WM:SI:NOT_FACTORY");
         _setImplementation(implementation_);
     }
 
-    function upgrade(uint256 version_, bytes calldata arguments_) external {
+    function upgrade(uint256 version_, bytes calldata arguments_) external override {
         require(msg.sender == admin(), "WM:U:NOT_ADMIN");
 
         IMapleGlobalsLike mapleGlobals = IMapleGlobalsLike(IPoolManagerLike(poolManager).globals());
@@ -73,7 +75,7 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
     /*** Administrative Functions ***/
     /********************************/
 
-    function setExitConfig(uint256 cycleDuration_, uint256 windowDuration_) external {
+    function setExitConfig(uint256 cycleDuration_, uint256 windowDuration_) external override {
         CycleConfig memory config_ = _getCurrentConfig();
 
         require(msg.sender == admin(),             "WM:SEC:NOT_ADMIN");
@@ -113,7 +115,7 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
 
     // TODO: Add checks for protocol pause?
 
-    function addShares(uint256 shares_, address owner_) external {
+    function addShares(uint256 shares_, address owner_) external override {
         require(msg.sender == poolManager, "WM:AS:NOT_POOL_MANAGER");
 
         uint256 exitCycleId_  = exitCycleId[owner_];
@@ -140,7 +142,7 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
         require(ERC20Helper.transferFrom(pool, msg.sender, address(this), shares_), "WM:AS:TRANSFER_FROM_FAIL");
     }
 
-    function removeShares(uint256 shares_, address owner_) external returns (uint256 sharesReturned_) {
+    function removeShares(uint256 shares_, address owner_) external override returns (uint256 sharesReturned_) {
         require(msg.sender == poolManager, "WM:RS:NOT_POOL_MANAGER");
 
         uint256 exitCycleId_  = exitCycleId[owner_];
@@ -172,7 +174,7 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
         require(ERC20Helper.transfer(pool, owner_, shares_), "WM:RS:TRANSFER_FAIL");
     }
 
-    function processExit(address account_, uint256 requestedShares_) external returns (uint256 redeemableShares_, uint256 resultingAssets_) {
+    function processExit(address account_, uint256 requestedShares_) external override returns (uint256 redeemableShares_, uint256 resultingAssets_) {
         require(msg.sender == poolManager, "WM:PE:NOT_PM");
 
         uint256 exitCycleId_  = exitCycleId[account_];
@@ -288,30 +290,30 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
     /*** View Functions ***/
     /**********************/
 
-    function admin() public view returns (address admin_) {
+    function admin() public view override returns (address admin_) {
         admin_ = IPoolManagerLike(poolManager).admin();
     }
 
-    function asset() public view returns (address asset_) {
+    function asset() public view override returns (address asset_) {
         asset_ = IPoolLike(pool).asset();
     }
 
-    function factory() external view returns (address factory_) {
+    function factory() external view override returns (address factory_) {
         factory_ = _factory();
     }
 
-    function implementation() external view returns (address implementation_) {
+    function implementation() external view override returns (address implementation_) {
         implementation_ = _implementation();
     }
 
-    function isInExitWindow(address owner_) external view returns (bool isInExitWindow_) {
+    function isInExitWindow(address owner_) external view override returns (bool isInExitWindow_) {
         uint256 exitCycleId_       = exitCycleId[owner_];
         CycleConfig memory config_ = _getConfigAtId(exitCycleId_);
         uint256 windowStart_       = _getWindowStart(config_, exitCycleId_);
         isInExitWindow_            = block.timestamp >= windowStart_ && block.timestamp < windowStart_ + config_.windowDuration;
     }
 
-    function lockedLiquidity() external view returns (uint256 lockedLiquidity_) {
+    function lockedLiquidity() external view override returns (uint256 lockedLiquidity_) {
         CycleConfig memory config_ = _getCurrentConfig();
 
         uint256 exitCycleId_ = _getCurrentCycleId(config_);
@@ -327,7 +329,7 @@ contract WithdrawalManager is WithdrawalManagerStorage, MapleProxiedInternals {
         }
     }
 
-    function previewRedeem(address owner_, uint256 shares_) external view returns (uint256 redeemableShares_, uint256 resultingAssets_) {
+    function previewRedeem(address owner_, uint256 shares_) external view override returns (uint256 redeemableShares_, uint256 resultingAssets_) {
         uint256 exitCycleId_ = exitCycleId[owner_];
 
         require(shares_ == lockedShares[owner_], "WM:PE:INVALID_SHARES");

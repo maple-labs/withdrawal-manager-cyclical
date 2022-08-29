@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity 0.8.7;
 
-abstract contract WithdrawalManagerStorage {
+import { IWithdrawalManagerStorage } from "./interfaces/IWithdrawalManagerStorage.sol";
 
-    address public pool;
-    address public poolManager;
+abstract contract WithdrawalManagerStorage is IWithdrawalManagerStorage {
 
-    uint256 public latestConfigId;
+    address public override pool;
+    address public override poolManager;
 
-    mapping(address => uint256) public exitCycleId;
-    mapping(address => uint256) public lockedShares;
+    uint256 public override latestConfigId;
 
-    mapping(uint256 => uint256) public totalCycleShares;
+    mapping(address => uint256) public override exitCycleId;
+    mapping(address => uint256) public override lockedShares;
 
-    mapping(uint256 => CycleConfig) public cycleConfigs;
+    mapping(uint256 => uint256) public override totalCycleShares;
+
+    mapping(uint256 => CycleConfig) public override cycleConfigs;
 
     struct CycleConfig {
         uint64 initialCycleId;    // Identifier of the first withdrawal cycle using this configuration.
