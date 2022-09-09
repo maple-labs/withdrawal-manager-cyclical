@@ -182,7 +182,7 @@ contract UpgradeTests is WithdrawalManagerTestBase {
 
     function test_upgrade_notScheduled() external {
         vm.prank(admin);
-        vm.expectRevert("WM:U:NOT_SCHEDULED");
+        vm.expectRevert("WM:U:INVALID_SCHED_CALL");
         withdrawalManager.upgrade(2, "");
     }
 

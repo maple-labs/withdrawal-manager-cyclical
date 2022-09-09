@@ -65,7 +65,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
 
         IMapleGlobalsLike mapleGlobals = IMapleGlobalsLike(IPoolManagerLike(poolManager).globals());
 
-        require(mapleGlobals.isValidScheduledCall(msg.sender, address(this), "WM:UPGRADE", msg.data), "WM:U:NOT_SCHEDULED");
+        require(mapleGlobals.isValidScheduledCall(msg.sender, address(this), "WM:UPGRADE", msg.data), "WM:U:INVALID_SCHED_CALL");
 
         mapleGlobals.unscheduleCall(msg.sender, "WM:UPGRADE", msg.data);
         IMapleProxyFactory(_factory()).upgradeInstance(version_, arguments_);
