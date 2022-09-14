@@ -61,13 +61,18 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     }
 
     function upgrade(uint256 version_, bytes calldata arguments_) external override {
-        require(msg.sender == admin(), "WM:U:NOT_ADMIN");
+        address poolDelegate_ = poolDelegate();
 
-        IMapleGlobalsLike mapleGlobals = IMapleGlobalsLike(IPoolManagerLike(poolManager).globals());
+        require(msg.sender == poolDelegate_ || msg.sender == governor(), "WM:U:NOT_AUTHORIZED");
 
-        require(mapleGlobals.isValidScheduledCall(msg.sender, address(this), "WM:UPGRADE", msg.data), "WM:U:INVALID_SCHED_CALL");
+        IMapleGlobalsLike mapleGlobals_ = IMapleGlobalsLike(globals());
 
-        mapleGlobals.unscheduleCall(msg.sender, "WM:UPGRADE", msg.data);
+        if (msg.sender == poolDelegate_) {
+            require(mapleGlobals_.isValidScheduledCall(msg.sender, address(this), "WM:UPGRADE", msg.data), "WM:U:INVALID_SCHED_CALL");
+
+            mapleGlobals_.unscheduleCall(msg.sender, "WM:UPGRADE", msg.data);
+        }
+
         IMapleProxyFactory(_factory()).upgradeInstance(version_, arguments_);
     }
 
@@ -78,7 +83,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     function setExitConfig(uint256 cycleDuration_, uint256 windowDuration_) external override {
         CycleConfig memory config_ = _getCurrentConfig();
 
-        require(msg.sender == admin(),             "WM:SEC:NOT_ADMIN");
+        require(msg.sender == poolDelegate(),      "WM:SEC:NOT_AUTHORIZED");
         require(windowDuration_ != 0,              "WM:SEC:ZERO_WINDOW");
         require(windowDuration_ <= cycleDuration_, "WM:SEC:WINDOW_OOB");
 
@@ -290,16 +295,20 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     /*** View Functions ***/
     /**********************/
 
-    function admin() public view override returns (address admin_) {
-        admin_ = IPoolManagerLike(poolManager).admin();
-    }
-
     function asset() public view override returns (address asset_) {
         asset_ = IPoolLike(pool).asset();
     }
 
     function factory() external view override returns (address factory_) {
         factory_ = _factory();
+    }
+
+    function globals() public view override returns (address globals_) {
+        globals_ = IMapleProxyFactory(_factory()).mapleGlobals();
+    }
+
+    function governor() public view override returns (address governor_) {
+        governor_ = IMapleGlobalsLike(globals()).governor();
     }
 
     function implementation() external view override returns (address implementation_) {
@@ -327,6 +336,10 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
 
             lockedLiquidity_ = totalCycleShares[exitCycleId_] * totalAssetsWithLosses_ / totalSupply_;
         }
+    }
+
+    function poolDelegate() public view override returns (address poolDelegate_) {
+        poolDelegate_ = IPoolManagerLike(poolManager).poolDelegate();
     }
 
     function previewRedeem(address owner_, uint256 shares_) external view override returns (uint256 redeemableShares_, uint256 resultingAssets_) {

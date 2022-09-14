@@ -12,7 +12,7 @@ import { MockGlobals, MockPool } from "./mocks/Mocks.sol";
 
 contract WithdrawalManagerFactoryTests is TestUtils {
 
-    address admin;
+    address poolDelegate;
     address governor;
     address implementation;
     address initializer;
@@ -24,14 +24,14 @@ contract WithdrawalManagerFactoryTests is TestUtils {
     WithdrawalManagerFactory factory;
 
     function setUp() external {
-        admin          = address(new Address());
+        poolDelegate   = address(new Address());
         governor       = address(new Address());
         implementation = address(new WithdrawalManager());
         initializer    = address(new WithdrawalManagerInitializer());
 
         asset   = new MockERC20("Wrapped Ether", "WETH", 18);
         globals = new MockGlobals(address(governor));
-        pool    = new MockPool("Maple Pool", "MP-WETH", 18, address(asset), admin);
+        pool    = new MockPool("Maple Pool", "MP-WETH", 18, address(asset), poolDelegate);
 
         vm.startPrank(governor);
         factory = new WithdrawalManagerFactory(address(globals));

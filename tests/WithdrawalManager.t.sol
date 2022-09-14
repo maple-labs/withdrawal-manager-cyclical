@@ -16,7 +16,7 @@ import { MockGlobals, MockPool, MockPoolManager, MockWithdrawalManagerMigrator }
 
 contract WithdrawalManagerTestBase is TestUtils {
 
-    address admin;
+    address poolDelegate;
     address governor;
     address implementation;
     address initializer;
@@ -35,7 +35,7 @@ contract WithdrawalManagerTestBase is TestUtils {
     WithdrawalManager withdrawalManager;
 
     function setUp() public virtual {
-        admin          = address(new Address());
+        poolDelegate   = address(new Address());
         governor       = address(new Address());
         implementation = address(new WithdrawalManager());
         initializer    = address(new WithdrawalManagerInitializer());
@@ -46,8 +46,8 @@ contract WithdrawalManagerTestBase is TestUtils {
         // Create all mocks.
         globals     = new MockGlobals(address(governor));
         asset       = new MockERC20("Wrapped Ether", "WETH", 18);
-        pool        = new MockPool("Maple Pool", "MP-WETH", 18, address(asset), admin);
-        poolManager = new MockPoolManager(address(pool), admin, address(globals));
+        pool        = new MockPool("Maple Pool", "MP-WETH", 18, address(asset), poolDelegate);
+        poolManager = new MockPoolManager(address(pool), poolDelegate, address(globals));
 
         pool.__setPoolManager(address(poolManager));
 
@@ -175,20 +175,32 @@ contract UpgradeTests is WithdrawalManagerTestBase {
         vm.stopPrank();
     }
 
-    function test_upgrade_notAdmin() external {
-        vm.expectRevert("WM:U:NOT_ADMIN");
+    function test_upgrade_notGovernor() external {
+        vm.expectRevert("WM:U:NOT_AUTHORIZED");
         withdrawalManager.upgrade(2, "");
+
+        vm.prank(governor);
+        withdrawalManager.upgrade(2, abi.encode(address(0)));
+    }
+
+    function test_upgrade_notPoolDelegate() external {
+        vm.expectRevert("WM:U:NOT_AUTHORIZED");
+        withdrawalManager.upgrade(2, "");
+
+        MockGlobals(globals).__setIsValidScheduledCall(true);
+        vm.prank(poolDelegate);
+        withdrawalManager.upgrade(2, abi.encode(address(0)));
     }
 
     function test_upgrade_notScheduled() external {
-        vm.prank(admin);
+        vm.prank(poolDelegate);
         vm.expectRevert("WM:U:INVALID_SCHED_CALL");
         withdrawalManager.upgrade(2, "");
     }
 
     function test_upgrade_upgradeFailed() external {
         MockGlobals(globals).__setIsValidScheduledCall(true);
-        vm.prank(admin);
+        vm.prank(poolDelegate);
         vm.expectRevert("MPF:UI:FAILED");
         withdrawalManager.upgrade(2, "1");
     }
@@ -197,7 +209,7 @@ contract UpgradeTests is WithdrawalManagerTestBase {
         assertEq(withdrawalManager.implementation(), implementation);
 
         MockGlobals(globals).__setIsValidScheduledCall(true);
-        vm.prank(admin);
+        vm.prank(poolDelegate);
         withdrawalManager.upgrade(2, abi.encode(address(0)));
 
         assertEq(withdrawalManager.implementation(), newImplementation);
@@ -207,25 +219,38 @@ contract UpgradeTests is WithdrawalManagerTestBase {
 
 contract SetExitConfigTests is WithdrawalManagerTestBase {
 
-    function test_setExitConfig_notAdmin() external {
-        vm.expectRevert("WM:SEC:NOT_ADMIN");
+    function test_setExitConfig_governor() external {
+        // Governor should not be allowed.
+        vm.prank(governor);
+        vm.expectRevert("WM:SEC:NOT_AUTHORIZED");
+        withdrawalManager.setExitConfig(1, 1);
+
+        vm.prank(poolDelegate);
+        withdrawalManager.setExitConfig(1, 1);
+    }
+
+    function test_setExitConfig_notPoolDelegate() external {
+        vm.expectRevert("WM:SEC:NOT_AUTHORIZED");
+        withdrawalManager.setExitConfig(1, 1);
+
+        vm.prank(poolDelegate);
         withdrawalManager.setExitConfig(1, 1);
     }
 
     function test_setExitConfig_zeroWindow() external {
-        vm.prank(admin);
+        vm.prank(poolDelegate);
         vm.expectRevert("WM:SEC:ZERO_WINDOW");
         withdrawalManager.setExitConfig(1, 0);
     }
 
     function test_setExitConfig_windowOutOfBounds() external {
-        vm.prank(admin);
+        vm.prank(poolDelegate);
         vm.expectRevert("WM:SEC:WINDOW_OOB");
         withdrawalManager.setExitConfig(1, 2);
     }
 
     function test_setExitConfig_identicalConfig() external {
-        vm.prank(admin);
+        vm.prank(poolDelegate);
         vm.expectRevert("WM:SEC:IDENTICAL_CONFIG");
         withdrawalManager.setExitConfig(1 weeks, 2 days);
     }
@@ -241,7 +266,7 @@ contract SetExitConfigTests is WithdrawalManagerTestBase {
         });
 
         // Add a new configuration.
-        vm.prank(admin);
+        vm.prank(poolDelegate);
         withdrawalManager.setExitConfig(1, 1);
 
         assertEq(withdrawalManager.latestConfigId(), 1);
@@ -265,7 +290,7 @@ contract SetExitConfigTests is WithdrawalManagerTestBase {
         });
 
         // Add a new configuration.
-        vm.prank(admin);
+        vm.prank(poolDelegate);
         withdrawalManager.setExitConfig(1, 1);
 
         assertEq(withdrawalManager.latestConfigId(), 1);
@@ -279,7 +304,7 @@ contract SetExitConfigTests is WithdrawalManagerTestBase {
 
         // Wait until just before the configuration takes effect and then update it.
         vm.warp(start + 3 weeks - 1);
-        vm.prank(admin);
+        vm.prank(poolDelegate);
         withdrawalManager.setExitConfig(2, 1);
 
         assertEq(withdrawalManager.latestConfigId(), 1);

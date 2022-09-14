@@ -44,16 +44,22 @@ interface IWithdrawalManager is IMapleProxied, IWithdrawalManagerStorage {
     /**********************/
 
     /**
-     * @dev    Gets the admin address.
-     * @return admin_ Address of the admin.
-     */
-    function admin() external view returns (address admin_);
-
-    /**
      * @dev    Gets the asset address used in this withdrawal manager.
      * @return asset_ Address of the asset.
      */
     function asset() external view returns (address asset_);
+
+    /**
+     *  @dev    Gets the address of the globals.
+     *  @return globals_ The address of the globals.
+     */
+    function globals() external view returns (address globals_);
+
+    /**
+     *  @dev    Gets the address of the governor.
+     *  @return governor_ The address of the governor.
+     */
+    function governor() external view returns (address governor_);
 
     /**
      * @dev    Checks if an account is included in a exit window.
@@ -67,6 +73,12 @@ interface IWithdrawalManager is IMapleProxied, IWithdrawalManagerStorage {
      * @return lockedLiquidity_ The amount of locked liquidity.
      */
     function lockedLiquidity() external view returns (uint256 lockedLiquidity_);
+
+    /**
+     * @dev    Gets the pool delegate address.
+     * @return poolDelegate_ Address of the pool delegate.
+     */
+    function poolDelegate() external view returns (address poolDelegate_);
 
     /**
      * @dev    Gets the amount of shares that can be redeemed.

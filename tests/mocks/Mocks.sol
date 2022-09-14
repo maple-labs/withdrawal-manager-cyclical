@@ -85,17 +85,17 @@ contract MockPool is MockERC20 {
 
 contract MockPoolManager {
 
-    address public admin;
     address public globals;
     address public pool;
+    address public poolDelegate;
 
     uint256 public totalAssets;
     uint256 public unrealizedLosses;
 
-    constructor(address pool_, address admin_, address globals_) {
-        admin   = admin_;
-        globals = globals_;
-        pool    = pool_;
+    constructor(address pool_, address poolDelegate_, address globals_) {
+        poolDelegate = poolDelegate_;
+        globals      = globals_;
+        pool         = pool_;
     }
 
     function __setTotalAssets(uint256 totalAssets_) external {

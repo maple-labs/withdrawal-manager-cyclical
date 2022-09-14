@@ -3,6 +3,8 @@ pragma solidity ^0.8.7;
 
 interface IMapleGlobalsLike {
 
+    function governor() external view returns (address governor_);
+
     function isPoolDeployer(address poolDeployer_) external view returns (bool isPoolDeployer_);
 
     function isValidScheduledCall(address caller_, address contract_, bytes32 functionId_, bytes calldata callData_) external view returns (bool isValid_);
@@ -37,7 +39,7 @@ interface IPoolLike {
 
 interface IPoolManagerLike {
 
-    function admin() external view returns (address admin_);
+    function poolDelegate() external view returns (address poolDelegate_);
 
     function globals() external view returns (address globals_);
 
