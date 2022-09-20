@@ -1012,3 +1012,17 @@ contract ProcessExitWithMultipleUsers is WithdrawalManagerTestBase {
     }
 
 }
+
+contract ViewFunctionTests is WithdrawalManagerTestBase {
+
+    function setUp() public override {
+        super.setUp();
+    }
+
+    function test_noLockedShares_isInExitWindowCheck() external {
+        assertEq(withdrawalManager.exitCycleId(lp),  0);
+        assertEq(withdrawalManager.lockedShares(lp), 0);
+
+        assertTrue(!withdrawalManager.isInExitWindow(lp));
+    }
+}

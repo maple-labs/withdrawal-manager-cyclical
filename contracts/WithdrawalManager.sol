@@ -316,7 +316,10 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     }
 
     function isInExitWindow(address owner_) external view override returns (bool isInExitWindow_) {
-        uint256 exitCycleId_       = exitCycleId[owner_];
+        uint256 exitCycleId_ = exitCycleId[owner_];
+
+        if (exitCycleId_ == 0) return false; // No withdrawal request
+
         CycleConfig memory config_ = _getConfigAtId(exitCycleId_);
         uint256 windowStart_       = _getWindowStart(config_, exitCycleId_);
         isInExitWindow_            = block.timestamp >= windowStart_ && block.timestamp < windowStart_ + config_.windowDuration;
