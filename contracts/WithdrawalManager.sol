@@ -107,10 +107,10 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         }
 
         cycleConfigs[latestConfigId_] = CycleConfig({
-            initialCycleId:   uint64(initialCycleId_),
-            initialCycleTime: uint64(initialCycleTime_),
-            cycleDuration:    uint64(cycleDuration_),
-            windowDuration:   uint64(windowDuration_)
+            initialCycleId:   _uint64(initialCycleId_),
+            initialCycleTime: _uint64(initialCycleTime_),
+            cycleDuration:    _uint64(cycleDuration_),
+            windowDuration:   _uint64(windowDuration_)
         });
     }
 
@@ -351,6 +351,15 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         require(shares_ == lockedShares[owner_], "WM:PE:INVALID_SHARES");
 
         ( redeemableShares_, resultingAssets_, ) = _previewRedeem(owner_, shares_, exitCycleId_, _getConfigAtId(exitCycleId_));
+    }
+
+    /******************************************************************************************************************************/
+    /*** Helper Functions                                                                                                       ***/
+    /******************************************************************************************************************************/
+
+    function _uint64(uint256 input_) internal pure returns (uint64 output_) {
+        require(input_ <= type(uint64).max, "LM:UINT64_CAST_OOB");
+        output_ = uint64(input_);
     }
 
 }

@@ -255,6 +255,17 @@ contract SetExitConfigTests is WithdrawalManagerTestBase {
         withdrawalManager.setExitConfig(1 weeks, 2 days);
     }
 
+    function test_setExitConfig_cycleDurationCastOob() external {
+        vm.startPrank(poolDelegate);
+        vm.expectRevert("LM:UINT64_CAST_OOB");
+        withdrawalManager.setExitConfig(uint256(type(uint64).max) + 1, 2 days);
+
+        withdrawalManager.setExitConfig(type(uint64).max, 2 days);
+    }
+
+    // NOTE: test_setExitConfig_windowDurationCastOob is not reachable because
+    //       withdrawalManager.setExitConfig(uint256(type(uint64).max), uint256(type(uint64).max) + 1); causes "WM:SEC:WINDOW_OOB"
+
     function test_setExitConfig_addConfig() external {
         assertEq(withdrawalManager.latestConfigId(), 0);
         assertConfig({
