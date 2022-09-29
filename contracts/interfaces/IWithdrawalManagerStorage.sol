@@ -3,7 +3,6 @@ pragma solidity 0.8.7;
 
 interface IWithdrawalManagerStorage {
 
-
     /**
      * @dev    Gets the configuration for a given config id.
      * @param  configId_        The id of the configuration to use.

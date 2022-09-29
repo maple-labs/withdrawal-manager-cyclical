@@ -7,9 +7,9 @@ import { IWithdrawalManagerStorage } from "./IWithdrawalManagerStorage.sol";
 
 interface IWithdrawalManager is IMapleProxied, IWithdrawalManagerStorage {
 
-    /********************************/
-    /*** State Changing Functions ***/
-    /********************************/
+    /******************************************************************************************************************************/
+    /*** State Changing Functions                                                                                               ***/
+    /******************************************************************************************************************************/
 
     /**
      * @dev   Add shares to the withdrawal manager.
@@ -39,9 +39,9 @@ interface IWithdrawalManager is IMapleProxied, IWithdrawalManagerStorage {
      */
     function setExitConfig(uint256 cycleDuration_, uint256 windowDuration_) external;
 
-    /**********************/
-    /*** View Functions ***/
-    /**********************/
+    /******************************************************************************************************************************/
+    /*** View Functions                                                                                                         ***/
+    /******************************************************************************************************************************/
 
     /**
      * @dev    Gets the asset address used in this withdrawal manager.

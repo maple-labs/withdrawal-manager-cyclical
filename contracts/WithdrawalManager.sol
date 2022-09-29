@@ -46,9 +46,9 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
      *    Users that lock their shares during and after C2 will withdraw in windows that use the new configuration.
      */
 
-    /***********************/
-    /*** Proxy Functions ***/
-    /***********************/
+    /******************************************************************************************************************************/
+    /*** Proxy Functions                                                                                                        ***/
+    /******************************************************************************************************************************/
 
     function migrate(address migrator_, bytes calldata arguments_) external override {
         require(msg.sender == _factory(),        "WM:M:NOT_FACTORY");
@@ -76,9 +76,9 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         IMapleProxyFactory(_factory()).upgradeInstance(version_, arguments_);
     }
 
-    /********************************/
-    /*** Administrative Functions ***/
-    /********************************/
+    /******************************************************************************************************************************/
+    /*** Administrative Functions                                                                                               ***/
+    /******************************************************************************************************************************/
 
     function setExitConfig(uint256 cycleDuration_, uint256 windowDuration_) external override {
         CycleConfig memory config_ = _getCurrentConfig();
@@ -114,11 +114,9 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         });
     }
 
-    /**********************/
-    /*** Exit Functions ***/
-    /**********************/
-
-    // TODO: Add checks for protocol pause?
+    /******************************************************************************************************************************/
+    /*** Exit Functions                                                                                                         ***/
+    /******************************************************************************************************************************/
 
     function addShares(uint256 shares_, address owner_) external override {
         require(msg.sender == poolManager, "WM:AS:NOT_POOL_MANAGER");
@@ -216,9 +214,9 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         exitCycleId[account_]  = exitCycleId_;
     }
 
-    /*************************/
-    /*** Utility Functions ***/
-    /*************************/
+    /******************************************************************************************************************************/
+    /*** Utility Functions                                                                                                      ***/
+    /******************************************************************************************************************************/
 
     function _getConfigAtId(uint256 cycleId_) internal view returns (CycleConfig memory config_) {
         uint256 configId_ = latestConfigId;
@@ -291,9 +289,9 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = _getRedeemableAmounts(lockedShares_, owner_);
     }
 
-    /**********************/
-    /*** View Functions ***/
-    /**********************/
+    /******************************************************************************************************************************/
+    /*** View Functions                                                                                                         ***/
+    /******************************************************************************************************************************/
 
     function asset() public view override returns (address asset_) {
         asset_ = IPoolLike(pool).asset();
