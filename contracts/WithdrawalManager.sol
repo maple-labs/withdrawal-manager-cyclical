@@ -81,7 +81,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     /******************************************************************************************************************************/
 
     function setExitConfig(uint256 cycleDuration_, uint256 windowDuration_) external override {
-        CycleConfig memory config_ = _getCurrentConfig();
+        CycleConfig memory config_ = getCurrentConfig();
 
         require(msg.sender == poolDelegate(),      "WM:SEC:NOT_AUTHORIZED");
         require(windowDuration_ != 0,              "WM:SEC:ZERO_WINDOW");
@@ -95,8 +95,9 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
 
         // The new config will take effect only after the current cycle and two additional ones elapse.
         // This is done in order to to prevent overlaps between the current and new withdrawal cycles.
-        uint256 initialCycleId_   = _getCurrentCycleId(config_) + 3;
-        uint256 initialCycleTime_ = _getWindowStart(config_, initialCycleId_);
+        uint256 currentCycleId_   = getCurrentCycleId();
+        uint256 initialCycleId_   = currentCycleId_ + 3;
+        uint256 initialCycleTime_ = getWindowStart(currentCycleId_) + 3 * config_.cycleDuration;
 
         // If the latest config has already started, add a new config.
         // Otherwise, the existing pending config will be overwritten.
@@ -124,9 +125,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         uint256 exitCycleId_  = exitCycleId[owner_];
         uint256 lockedShares_ = lockedShares[owner_];
 
-        CycleConfig memory config_ = _getConfigAtId(exitCycleId_);
-
-        require(lockedShares_ == 0 || block.timestamp >= _getWindowStart(config_, exitCycleId_), "WM:AS:WITHDRAWAL_PENDING");
+        require(lockedShares_ == 0 || block.timestamp >= getWindowStart(exitCycleId_), "WM:AS:WITHDRAWAL_PENDING");
 
         // Remove all existing shares from the current cycle.
         totalCycleShares[exitCycleId_] -= lockedShares_;
@@ -136,7 +135,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         require(lockedShares_ != 0, "WM:AS:NO_OP");
 
         // Move all shares (including any new ones) to the new cycle.
-        exitCycleId_ = _getCurrentCycleId(config_) + 2;
+        exitCycleId_ = getCurrentCycleId() + 2;
         totalCycleShares[exitCycleId_] += lockedShares_;
 
         exitCycleId[owner_]  = exitCycleId_;
@@ -151,17 +150,15 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         uint256 exitCycleId_  = exitCycleId[owner_];
         uint256 lockedShares_ = lockedShares[owner_];
 
-        CycleConfig memory config_ = _getConfigAtId(exitCycleId_);
-
-        require(block.timestamp >= _getWindowStart(config_, exitCycleId_), "WM:RS:WITHDRAWAL_PENDING");
-        require(shares_ != 0 && shares_ <= lockedShares_,                  "WM:RS:SHARES_OOB");
+        require(block.timestamp >= getWindowStart(exitCycleId_), "WM:RS:WITHDRAWAL_PENDING");
+        require(shares_ != 0 && shares_ <= lockedShares_,        "WM:RS:SHARES_OOB");
 
         // Remove shares from old the cycle.
         totalCycleShares[exitCycleId_] -= lockedShares_;
 
         // Calculate remaining shares and new cycle (if applicable).
         lockedShares_ -= shares_;
-        exitCycleId_   = lockedShares_ != 0 ? _getCurrentCycleId(config_) + 2 : 0;
+        exitCycleId_   = lockedShares_ != 0 ? getCurrentCycleId() + 2 : 0;
 
         // Add shares to new cycle (if applicable).
         if (lockedShares_ != 0) {
@@ -185,11 +182,9 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
 
         require(requestedShares_ == lockedShares_, "WM:PE:INVALID_SHARES");
 
-        CycleConfig memory config_ = _getConfigAtId(exitCycleId_);
-
         bool partialLiquidity_;
 
-        ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = _previewRedeem(account_, lockedShares_, exitCycleId_, config_);
+        ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = _previewRedeem(account_, lockedShares_, exitCycleId_);
 
         // Transfer both returned shares and redeemable shares, burn only the redeemable shares in the pool.
         require(ERC20Helper.transfer(pool, account_, redeemableShares_), "WM:PE:TRANSFER_FAIL");
@@ -203,7 +198,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         // If there are any remaining shares, move them to the next cycle.
         // In case of partial liquidity move shares only one cycle forward (instead of two).
         if (lockedShares_ != 0) {
-            exitCycleId_ = _getCurrentCycleId(config_) + (partialLiquidity_ ? 1 : 2);
+            exitCycleId_ = getCurrentCycleId() + (partialLiquidity_ ? 1 : 2);
             totalCycleShares[exitCycleId_] += lockedShares_;
         } else {
             exitCycleId_ = 0;
@@ -215,10 +210,46 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     }
 
     /******************************************************************************************************************************/
-    /*** Utility Functions                                                                                                      ***/
+    /*** External View Utility Functions                                                                                                ***/
     /******************************************************************************************************************************/
 
-    function _getConfigAtId(uint256 cycleId_) internal view returns (CycleConfig memory config_) {
+    function isInExitWindow(address owner_) external view override returns (bool isInExitWindow_) {
+        uint256 exitCycleId_ = exitCycleId[owner_];
+
+        if (exitCycleId_ == 0) return false; // No withdrawal request
+
+        ( uint256 windowStart_, uint256 windowEnd_ ) = getWindowAtId(exitCycleId_);
+
+        isInExitWindow_ = block.timestamp >= windowStart_ && block.timestamp <  windowEnd_;
+    }
+
+    function lockedLiquidity() external view override returns (uint256 lockedLiquidity_) {
+        uint256 currentCycleId_ = getCurrentCycleId();
+
+        ( uint256 windowStart_, uint256 windowEnd_ ) = getWindowAtId(currentCycleId_);
+
+        if (block.timestamp >= windowStart_ && block.timestamp < windowEnd_) {
+            IPoolManagerLike poolManager_  = IPoolManagerLike(poolManager);
+            uint256 totalAssetsWithLosses_ = poolManager_.totalAssets() - poolManager_.unrealizedLosses();
+            uint256 totalSupply_           = IPoolLike(pool).totalSupply();
+
+            lockedLiquidity_ = totalCycleShares[currentCycleId_] * totalAssetsWithLosses_ / totalSupply_;
+        }
+    }
+
+    function previewRedeem(address owner_, uint256 shares_) external view override returns (uint256 redeemableShares_, uint256 resultingAssets_) {
+        uint256 exitCycleId_ = exitCycleId[owner_];
+
+        require(shares_ == lockedShares[owner_], "WM:PE:INVALID_SHARES");
+
+        ( redeemableShares_, resultingAssets_, ) = _previewRedeem(owner_, shares_, exitCycleId_);
+    }
+
+    /******************************************************************************************************************************/
+    /*** Public View Utility Functions                                                                                           ***/
+    /******************************************************************************************************************************/
+
+    function getConfigAtId(uint256 cycleId_) public view returns (CycleConfig memory config_) {
         uint256 configId_ = latestConfigId;
 
         if (configId_ == 0) return cycleConfigs[configId_];
@@ -230,7 +261,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         config_ = cycleConfigs[configId_];
     }
 
-    function _getCurrentConfig() internal view returns (CycleConfig memory config_) {
+    function getCurrentConfig() public view returns (CycleConfig memory config_) {
         uint256 configId_ = latestConfigId;
 
         while (block.timestamp < cycleConfigs[configId_].initialCycleTime) {
@@ -240,11 +271,13 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         config_ = cycleConfigs[configId_];
     }
 
-    function _getCurrentCycleId(CycleConfig memory config_) internal view returns (uint256 cycleId_) {
+    function getCurrentCycleId() public view returns (uint256 cycleId_) {
+        CycleConfig memory config_ = getCurrentConfig();
+
         cycleId_ = config_.initialCycleId + (block.timestamp - config_.initialCycleTime) / config_.cycleDuration;
     }
 
-    function _getRedeemableAmounts(uint256 lockedShares_, address owner_) internal view returns (uint256 redeemableShares_, uint256 resultingAssets_, bool partialLiquidity_) {
+    function getRedeemableAmounts(uint256 lockedShares_, address owner_) public view returns (uint256 redeemableShares_, uint256 resultingAssets_, bool partialLiquidity_) {
         IPoolManagerLike poolManager_ = IPoolManagerLike(poolManager);
 
         // Calculate how much liquidity is available, and how much is required to allow redemption of shares.
@@ -264,33 +297,41 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         resultingAssets_ = totalAssetsWithLosses_ * redeemableShares_ / totalSupply_;
     }
 
-    function _getWindowStart(CycleConfig memory config_, uint256 cycleId_) internal pure returns (uint256 cycleStart_) {
+    function getWindowStart(uint256 cycleId_) public view returns (uint256 cycleStart_) {
+        CycleConfig memory config_ = getConfigAtId(cycleId_);
+
         cycleStart_ = config_.initialCycleTime + (cycleId_ - config_.initialCycleId) * config_.cycleDuration;
     }
+
+    function getWindowAtId(uint256 cycleId_) public view returns (uint256 windowStart_, uint256 windowEnd_) {
+        CycleConfig memory config_ = getConfigAtId(cycleId_);
+
+        windowStart_ = config_.initialCycleTime + (cycleId_ - config_.initialCycleId) * config_.cycleDuration;
+        windowEnd_   = windowStart_ + config_.windowDuration;
+    }
+
+    /******************************************************************************************************************************/
+    /*** Internal View Utility Functions                                                                                             ***/
+    /******************************************************************************************************************************/
 
     function _previewRedeem(
         address owner_,
         uint256 lockedShares_,
-        uint256 exitCycleId_,
-        CycleConfig memory config_
+        uint256 exitCycleId_
     )
         internal view returns (uint256 redeemableShares_, uint256 resultingAssets_, bool partialLiquidity_)
     {
         require(lockedShares_ != 0, "WM:PR:NO_REQUEST");
 
-        uint256 windowStart_ = _getWindowStart(config_, exitCycleId_);
+        ( uint256 windowStart_, uint256 windowEnd_ ) = getWindowAtId(exitCycleId_);
 
-        require(
-            block.timestamp >= windowStart_ &&
-            block.timestamp < windowStart_ + config_.windowDuration,
-            "WM:PR:NOT_IN_WINDOW"
-        );
+        require(block.timestamp >= windowStart_ && block.timestamp <  windowEnd_, "WM:PR:NOT_IN_WINDOW");
 
-        ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = _getRedeemableAmounts(lockedShares_, owner_);
+        ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = getRedeemableAmounts(lockedShares_, owner_);
     }
 
     /******************************************************************************************************************************/
-    /*** View Functions                                                                                                         ***/
+    /*** Address View Functions                                                                                                 ***/
     /******************************************************************************************************************************/
 
     function asset() public view override returns (address asset_) {
@@ -309,46 +350,12 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         governor_ = IMapleGlobalsLike(globals()).governor();
     }
 
-    function implementation() external view override returns (address implementation_) {
-        implementation_ = _implementation();
-    }
-
-    function isInExitWindow(address owner_) external view override returns (bool isInExitWindow_) {
-        uint256 exitCycleId_ = exitCycleId[owner_];
-
-        if (exitCycleId_ == 0) return false; // No withdrawal request
-
-        CycleConfig memory config_ = _getConfigAtId(exitCycleId_);
-        uint256 windowStart_       = _getWindowStart(config_, exitCycleId_);
-        isInExitWindow_            = block.timestamp >= windowStart_ && block.timestamp < windowStart_ + config_.windowDuration;
-    }
-
-    function lockedLiquidity() external view override returns (uint256 lockedLiquidity_) {
-        CycleConfig memory config_ = _getCurrentConfig();
-
-        uint256 exitCycleId_ = _getCurrentCycleId(config_);
-        uint256 windowStart_ = _getWindowStart(config_, exitCycleId_);
-        uint256 windowEnd_   = windowStart_ + config_.windowDuration;
-
-        if (block.timestamp >= windowStart_ && block.timestamp < windowEnd_) {
-            IPoolManagerLike poolManager_  = IPoolManagerLike(poolManager);
-            uint256 totalAssetsWithLosses_ = poolManager_.totalAssets() - poolManager_.unrealizedLosses();
-            uint256 totalSupply_           = IPoolLike(pool).totalSupply();
-
-            lockedLiquidity_ = totalCycleShares[exitCycleId_] * totalAssetsWithLosses_ / totalSupply_;
-        }
-    }
-
     function poolDelegate() public view override returns (address poolDelegate_) {
         poolDelegate_ = IPoolManagerLike(poolManager).poolDelegate();
     }
 
-    function previewRedeem(address owner_, uint256 shares_) external view override returns (uint256 redeemableShares_, uint256 resultingAssets_) {
-        uint256 exitCycleId_ = exitCycleId[owner_];
-
-        require(shares_ == lockedShares[owner_], "WM:PE:INVALID_SHARES");
-
-        ( redeemableShares_, resultingAssets_, ) = _previewRedeem(owner_, shares_, exitCycleId_, _getConfigAtId(exitCycleId_));
+    function implementation() external view override returns (address implementation_) {
+        implementation_ = _implementation();
     }
 
     /******************************************************************************************************************************/
