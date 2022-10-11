@@ -98,12 +98,10 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         uint256 currentCycleId_   = getCurrentCycleId();
         uint256 initialCycleId_   = currentCycleId_ + 3;
         uint256 initialCycleTime_ = getWindowStart(currentCycleId_) + 3 * config_.cycleDuration;
+        uint256 latestConfigId_   = latestConfigId;
 
-        // If the latest config has already started, add a new config.
-        // Otherwise, the existing pending config will be overwritten.
-        uint256 latestConfigId_ = latestConfigId;
-
-        if (block.timestamp >= cycleConfigs[latestConfigId_].initialCycleTime) {
+        // If the new config takes effect on the same cycle as the latest config, overwrite it. Otherwise create a new config.
+        if (initialCycleId_ != cycleConfigs[latestConfigId_].initialCycleId) {
             latestConfigId_ = ++latestConfigId;
         }
 
@@ -112,6 +110,14 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
             initialCycleTime: _uint64(initialCycleTime_),
             cycleDuration:    _uint64(cycleDuration_),
             windowDuration:   _uint64(windowDuration_)
+        });
+
+        emit ConfigurationUpdated({
+            configId_:         latestConfigId_,
+            initialCycleId_:   _uint64(initialCycleId_),
+            initialCycleTime_: _uint64(initialCycleTime_),
+            cycleDuration_:    _uint64(cycleDuration_),
+            windowDuration_:   _uint64(windowDuration_)
         });
     }
 
@@ -142,6 +148,8 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         lockedShares[owner_] = lockedShares_;
 
         require(ERC20Helper.transferFrom(pool, msg.sender, address(this), shares_), "WM:AS:TRANSFER_FROM_FAIL");
+
+        _emitUpdate(owner_, lockedShares_, exitCycleId_);
     }
 
     function removeShares(uint256 shares_, address owner_) external override returns (uint256 sharesReturned_) {
@@ -172,6 +180,8 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         sharesReturned_ = shares_;
 
         require(ERC20Helper.transfer(pool, owner_, shares_), "WM:RS:TRANSFER_FAIL");
+
+        _emitUpdate(owner_, lockedShares_, exitCycleId_);
     }
 
     function processExit(address account_, uint256 requestedShares_) external override returns (uint256 redeemableShares_, uint256 resultingAssets_) {
@@ -207,10 +217,13 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         // Update the locked shares and cycle for the account, setting to zero if no shares are remaining.
         lockedShares[account_] = lockedShares_;
         exitCycleId[account_]  = exitCycleId_;
+
+        _emitProcess(account_, redeemableShares_, resultingAssets_);
+        _emitUpdate(account_, lockedShares_, exitCycleId_);
     }
 
     /******************************************************************************************************************************/
-    /*** External View Utility Functions                                                                                                ***/
+    /*** External View Utility Functions                                                                                        ***/
     /******************************************************************************************************************************/
 
     function isInExitWindow(address owner_) external view override returns (bool isInExitWindow_) {
@@ -240,13 +253,13 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     function previewRedeem(address owner_, uint256 shares_) external view override returns (uint256 redeemableShares_, uint256 resultingAssets_) {
         uint256 exitCycleId_ = exitCycleId[owner_];
 
-        require(shares_ == lockedShares[owner_], "WM:PE:INVALID_SHARES");
+        require(shares_ == lockedShares[owner_], "WM:PR:INVALID_SHARES");
 
         ( redeemableShares_, resultingAssets_, ) = _previewRedeem(owner_, shares_, exitCycleId_);
     }
 
     /******************************************************************************************************************************/
-    /*** Public View Utility Functions                                                                                           ***/
+    /*** Public View Utility Functions                                                                                          ***/
     /******************************************************************************************************************************/
 
     function getConfigAtId(uint256 cycleId_) public view returns (CycleConfig memory config_) {
@@ -311,7 +324,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     }
 
     /******************************************************************************************************************************/
-    /*** Internal View Utility Functions                                                                                             ***/
+    /*** Internal View Utility Functions                                                                                        ***/
     /******************************************************************************************************************************/
 
     function _previewRedeem(
@@ -362,8 +375,27 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     /*** Helper Functions                                                                                                       ***/
     /******************************************************************************************************************************/
 
+    function _emitProcess(address account_, uint256 sharesToRedeem_, uint256 assetsToWithdraw_) internal {
+        if (sharesToRedeem_ == 0) {
+            return;
+        }
+
+        emit WithdrawalProcessed(account_, sharesToRedeem_, assetsToWithdraw_);
+    }
+
+    function _emitUpdate(address account_, uint256 lockedShares_, uint256 exitCycleId_) internal {
+        if (lockedShares_ == 0) {
+            emit WithdrawalCancelled(account_);
+            return;
+        }
+
+        ( uint256 windowStart_, uint256 windowEnd_ ) = getWindowAtId(exitCycleId_);
+
+        emit WithdrawalUpdated(account_, lockedShares_, _uint64(windowStart_), _uint64(windowEnd_));
+    }
+
     function _uint64(uint256 input_) internal pure returns (uint64 output_) {
-        require(input_ <= type(uint64).max, "LM:UINT64_CAST_OOB");
+        require(input_ <= type(uint64).max, "WM:UINT64_CAST_OOB");
         output_ = uint64(input_);
     }
 

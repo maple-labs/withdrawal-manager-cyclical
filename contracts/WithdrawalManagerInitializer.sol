@@ -29,6 +29,14 @@ contract WithdrawalManagerInitializer is WithdrawalManagerStorage, MapleProxiedI
             cycleDuration:    uint64(cycleDuration_),
             windowDuration:   uint64(windowDuration_)
         });
+
+        emit ConfigurationUpdated({
+            configId_:         0,
+            initialCycleId_:   1,
+            initialCycleTime_: uint64(block.timestamp),
+            cycleDuration_:    uint64(cycleDuration_),
+            windowDuration_:   uint64(windowDuration_)
+        });
     }
 
 }

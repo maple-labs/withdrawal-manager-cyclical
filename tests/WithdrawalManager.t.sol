@@ -257,7 +257,7 @@ contract SetExitConfigTests is WithdrawalManagerTestBase {
 
     function test_setExitConfig_cycleDurationCastOob() external {
         vm.startPrank(poolDelegate);
-        vm.expectRevert("LM:UINT64_CAST_OOB");
+        vm.expectRevert("WM:UINT64_CAST_OOB");
         withdrawalManager.setExitConfig(uint256(type(uint64).max) + 1, 2 days);
 
         withdrawalManager.setExitConfig(type(uint64).max, 2 days);
@@ -292,6 +292,7 @@ contract SetExitConfigTests is WithdrawalManagerTestBase {
 
     function test_setExitConfig_updateConfig() external {
         assertEq(withdrawalManager.latestConfigId(), 0);
+
         assertConfig({
             configurationId:  1,
             initialCycleId:   0,
@@ -305,6 +306,7 @@ contract SetExitConfigTests is WithdrawalManagerTestBase {
         withdrawalManager.setExitConfig(1, 1);
 
         assertEq(withdrawalManager.latestConfigId(), 1);
+
         assertConfig({
             configurationId:  1,
             initialCycleId:   1     + 3,
@@ -313,17 +315,57 @@ contract SetExitConfigTests is WithdrawalManagerTestBase {
             windowDuration:   1
         });
 
-        // Wait until just before the configuration takes effect and then update it.
-        vm.warp(start + 3 weeks - 1);
+        assertConfig({
+            configurationId:  2,
+            initialCycleId:   0,
+            initialCycleTime: 0,
+            cycleDuration:    0,
+            windowDuration:   0
+        });
+
+        // Wait until a new cycle begins.
+        vm.warp(start + 1 weeks);
         vm.prank(poolDelegate);
         withdrawalManager.setExitConfig(2, 1);
 
-        assertEq(withdrawalManager.latestConfigId(), 1);
+        assertEq(withdrawalManager.latestConfigId(), 2);
+
         assertConfig({
             configurationId:  1,
-            initialCycleId:   1     + 3       + 2,
-            initialCycleTime: start + 3 weeks + 2 weeks,
+            initialCycleId:   1     + 3,
+            initialCycleTime: start + 3 weeks,
+            cycleDuration:    1,
+            windowDuration:   1
+        });
+
+        assertConfig({
+            configurationId:  2,
+            initialCycleId:   1     + 3       + 1,
+            initialCycleTime: start + 3 weeks + 1 weeks,
             cycleDuration:    2,
+            windowDuration:   1
+        });
+
+        // Update the configuration again within the same cycle in order to overwrite it.
+        vm.warp(start + 2 weeks - 1);
+        vm.prank(poolDelegate);
+        withdrawalManager.setExitConfig(3, 1);
+
+        assertEq(withdrawalManager.latestConfigId(), 2);
+
+        assertConfig({
+            configurationId:  1,
+            initialCycleId:   1     + 3,
+            initialCycleTime: start + 3 weeks,
+            cycleDuration:    1,
+            windowDuration:   1
+        });
+
+        assertConfig({
+            configurationId:  2,
+            initialCycleId:   1     + 3       + 1,
+            initialCycleTime: start + 3 weeks + 1 weeks,
+            cycleDuration:    3,
             windowDuration:   1
         });
     }

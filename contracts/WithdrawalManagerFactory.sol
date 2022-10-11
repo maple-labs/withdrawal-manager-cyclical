@@ -7,8 +7,6 @@ import { IMapleGlobalsLike } from "./interfaces/Interfaces.sol";
 
 contract WithdrawalManagerFactory is MapleProxyFactory {
 
-    mapping(address => bool) public isInstance;
-
     constructor(address globals_) MapleProxyFactory(globals_) {}
 
     function createInstance(bytes calldata arguments_, bytes32 salt_) public override(MapleProxyFactory) returns (address instance_) {

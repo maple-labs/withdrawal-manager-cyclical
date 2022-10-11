@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity 0.8.7;
 
+import { IWithdrawalManagerEvents  } from "./interfaces/IWithdrawalManagerEvents.sol";
 import { IWithdrawalManagerStorage } from "./interfaces/IWithdrawalManagerStorage.sol";
 
-abstract contract WithdrawalManagerStorage is IWithdrawalManagerStorage {
+abstract contract WithdrawalManagerStorage is IWithdrawalManagerStorage, IWithdrawalManagerEvents {
 
     address public override pool;
     address public override poolManager;
