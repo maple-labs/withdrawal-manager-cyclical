@@ -1078,4 +1078,10 @@ contract ViewFunctionTests is WithdrawalManagerTestBase {
 
         assertTrue(!withdrawalManager.isInExitWindow(lp));
     }
+
+    function testFuzz_previewWithdraw_alwaysFails(address user, uint256 amount) external {
+        vm.expectRevert("WM:PW:NOT_ENABLED");
+        withdrawalManager.previewWithdraw(user, amount);
+    }
+
 }

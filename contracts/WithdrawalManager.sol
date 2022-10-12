@@ -371,6 +371,11 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         implementation_ = _implementation();
     }
 
+    function previewWithdraw(address owner_, uint256 assets_) external pure override returns (uint256 redeemableAssets_, uint256 resultingShares_) {
+        owner_; assets_; redeemableAssets_; resultingShares_;  // Silence compiler warnings
+        require(false, "WM:PW:NOT_ENABLED");
+    }
+
     /******************************************************************************************************************************/
     /*** Helper Functions                                                                                                       ***/
     /******************************************************************************************************************************/

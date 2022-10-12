@@ -89,4 +89,13 @@ interface IWithdrawalManager is IMapleProxied, IWithdrawalManagerStorage {
      */
     function previewRedeem(address owner_, uint256 shares_) external view returns (uint256 redeemableShares_, uint256 resultingAssets_);
 
+    /**
+     * @dev    Gets the amount of shares that can be withdrawn.
+     * @param  owner_            The address to check the withdrawal for.
+     * @param  assets_           The amount of requested shares to withdraw.
+     * @return redeemableAssets_ The amount of assets that can be withdrawn.
+     * @return resultingShares_  The amount of shares that will be burned.
+     */
+    function previewWithdraw(address owner_, uint256 assets_) external view returns (uint256 redeemableAssets_, uint256 resultingShares_);
+
 }
