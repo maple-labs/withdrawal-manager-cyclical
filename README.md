@@ -8,6 +8,20 @@ The `WithdrawalManager` is an upgradable contract used by the Maple V2 protocol 
 
 For more information about the `WithdrawalManager` contract in the context of the Maple V2 protocol, please refer to the Withdrawal section of the protocol [wiki](https://github.com/maple-labs/maple-core-v2/wiki/Withdrawal-Mechanism).
 
+## Dependencies/Inheritance
+
+Contracts in this repo inherit and import code from:
+- [`maple-labs/erc20`](https://github.com/maple-labs/erc20)
+- [`maple-labs/erc20-helper`](https://github.com/maple-labs/erc20-helper)
+- [`maple-labs/maple-proxy-factory`](https://github.com/maple-labs/maple-proxy-factory)
+
+Contracts inherit and import code in the following ways:
+- `WithdrawalManager` uses `ERC20Helper` for token interactions.
+- `WithdrawalManager` inherits `MapleProxiedInternals` for proxy logic.
+- `WithdrawalManagerFactory` inherits `MapleProxyFactory` for proxy deployment and management.
+
+Versions of dependencies can be checked with `git submodule status`.
+
 ## Setup
 
 This project was built using [Foundry](https://book.getfoundry.sh/). Refer to installation instructions [here](https://github.com/foundry-rs/foundry#installation).
@@ -23,7 +37,7 @@ forge install
 - To run all tests: `forge test`
 - To run specific tests: `forge test --match <test_name>`
 
-`./scripts/test.sh` is used to enable Foundry profile usage using the `-p` flag. Profiles are used to specify fuzz run depth.
+`./scripts/test.sh` is used to enable Foundry profile usage with the `-p` flag. Profiles are used to specify the number of fuzz runs.
 
 ## About Maple
 
