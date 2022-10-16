@@ -11,40 +11,54 @@ import { IWithdrawalManager } from "./interfaces/IWithdrawalManager.sol";
 
 import { WithdrawalManagerStorage } from "./WithdrawalManagerStorage.sol";
 
-contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, MapleProxiedInternals {
+/*
 
-    /**
-     *    **************************
-     *    *** Withdrawal Manager ***
-     *    **************************
-     *    `cycleDuration` is the time of a full withdrawal cycle.
-     *
-     *    |--------|--------|
-     *        C1       C2
-     *
-     *    There is a withdrawal window at the beginning of each withdrawal cycle.
-     *
-     *    |===-----|===-----|
-     *     WW1      WW2
-     *
-     *    Once a user locks their shares, they must wait at least one full cycle from the end of the cycle they locked their shares in.
-     *    Users are only able to withdraw during a withdrawal window, which starts at the beginning of each cycle.
-     *
-     *    |===-.---|===-----|===-----|
-     *         ^             ^
-     *     shares locked    earliest withdrawal time
-     *
-     *    When the pool delegate changes the configuration, it will take effect only on the start of the third cycle.
-     *    This way all users that have already locked their shares will not have their withdrawal time affected.
-     *
-     *        C1       C2       C3             C4
-     *    |===--.--|===-----|===-----|==========----------|
-     *          ^                     ^
-     *    configuration change     new configuration kicks in
-     *
-     *    Users that request a withdrawal during C1 will withdraw during WW3 using the old configuration.
-     *    Users that lock their shares during and after C2 will withdraw in windows that use the new configuration.
-     */
+    ██╗    ██╗██╗████████╗██╗  ██╗██████╗ ██████╗  █████╗ ██╗    ██╗ █████╗ ██╗
+    ██║    ██║██║╚══██╔══╝██║  ██║██╔══██╗██╔══██╗██╔══██╗██║    ██║██╔══██╗██║
+    ██║ █╗ ██║██║   ██║   ███████║██║  ██║██████╔╝███████║██║ █╗ ██║███████║██║
+    ██║███╗██║██║   ██║   ██╔══██║██║  ██║██╔══██╗██╔══██║██║███╗██║██╔══██║██║
+    ╚███╔███╔╝██║   ██║   ██║  ██║██████╔╝██║  ██║██║  ██║╚███╔███╔╝██║  ██║███████╗
+    ╚══╝╚══╝ ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝
+
+
+    ███╗   ███╗ █████╗ ███╗   ██╗ █████╗  ██████╗ ███████╗██████╗
+    ████╗ ████║██╔══██╗████╗  ██║██╔══██╗██╔════╝ ██╔════╝██╔══██╗
+    ██╔████╔██║███████║██╔██╗ ██║███████║██║  ███╗█████╗  ██████╔╝
+    ██║╚██╔╝██║██╔══██║██║╚██╗██║██╔══██║██║   ██║██╔══╝  ██╔══██╗
+    ██║ ╚═╝ ██║██║  ██║██║ ╚████║██║  ██║╚██████╔╝███████╗██║  ██║
+    ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝
+
+    * `cycleDuration` is the time of a full withdrawal cycle.
+    *
+    * |--------|--------|
+    *     C1       C2
+    *
+    * There is a withdrawal window at the beginning of each withdrawal cycle.
+    *
+    * |===-----|===-----|
+    *  WW1      WW2
+    *
+    * Once a user locks their shares, they must wait at least one full cycle from the end of the cycle they locked their shares in.
+    * Users are only able to withdraw during a withdrawal window, which starts at the beginning of each cycle.
+    *
+    * |===-.---|===-----|===-----|
+    *      ^             ^
+    *  shares locked    earliest withdrawal time
+    *
+    * When the pool delegate changes the configuration, it will take effect only on the start of the third cycle.
+    * This way all users that have already locked their shares will not have their withdrawal time affected.
+    *
+    *     C1       C2       C3             C4
+    * |===--.--|===-----|===-----|==========----------|
+    *       ^                     ^
+    * configuration change     new configuration kicks in
+    *
+    * Users that request a withdrawal during C1 will withdraw during WW3 using the old configuration.
+    * Users that lock their shares during and after C2 will withdraw in windows that use the new configuration.
+
+*/
+
+contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, MapleProxiedInternals {
 
     /******************************************************************************************************************************/
     /*** Proxy Functions                                                                                                        ***/
@@ -242,7 +256,8 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         ( uint256 windowStart_, uint256 windowEnd_ ) = getWindowAtId(currentCycleId_);
 
         if (block.timestamp >= windowStart_ && block.timestamp < windowEnd_) {
-            IPoolManagerLike poolManager_  = IPoolManagerLike(poolManager);
+            IPoolManagerLike poolManager_ = IPoolManagerLike(poolManager);
+
             uint256 totalAssetsWithLosses_ = poolManager_.totalAssets() - poolManager_.unrealizedLosses();
             uint256 totalSupply_           = IPoolLike(pool).totalSupply();
 
@@ -262,7 +277,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     /*** Public View Utility Functions                                                                                          ***/
     /******************************************************************************************************************************/
 
-    function getConfigAtId(uint256 cycleId_) public view returns (CycleConfig memory config_) {
+    function getConfigAtId(uint256 cycleId_) public view override returns (CycleConfig memory config_) {
         uint256 configId_ = latestConfigId;
 
         if (configId_ == 0) return cycleConfigs[configId_];
@@ -274,23 +289,23 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         config_ = cycleConfigs[configId_];
     }
 
-    function getCurrentConfig() public view returns (CycleConfig memory config_) {
+    function getCurrentConfig() public view override returns (CycleConfig memory config_) {
         uint256 configId_ = latestConfigId;
 
         while (block.timestamp < cycleConfigs[configId_].initialCycleTime) {
-            configId_--;
+            --configId_;
         }
 
         config_ = cycleConfigs[configId_];
     }
 
-    function getCurrentCycleId() public view returns (uint256 cycleId_) {
+    function getCurrentCycleId() public view override returns (uint256 cycleId_) {
         CycleConfig memory config_ = getCurrentConfig();
 
         cycleId_ = config_.initialCycleId + (block.timestamp - config_.initialCycleTime) / config_.cycleDuration;
     }
 
-    function getRedeemableAmounts(uint256 lockedShares_, address owner_) public view returns (uint256 redeemableShares_, uint256 resultingAssets_, bool partialLiquidity_) {
+    function getRedeemableAmounts(uint256 lockedShares_, address owner_) public view override returns (uint256 redeemableShares_, uint256 resultingAssets_, bool partialLiquidity_) {
         IPoolManagerLike poolManager_ = IPoolManagerLike(poolManager);
 
         // Calculate how much liquidity is available, and how much is required to allow redemption of shares.
@@ -310,13 +325,13 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         resultingAssets_ = totalAssetsWithLosses_ * redeemableShares_ / totalSupply_;
     }
 
-    function getWindowStart(uint256 cycleId_) public view returns (uint256 cycleStart_) {
+    function getWindowStart(uint256 cycleId_) public view override returns (uint256 windowStart_) {
         CycleConfig memory config_ = getConfigAtId(cycleId_);
 
-        cycleStart_ = config_.initialCycleTime + (cycleId_ - config_.initialCycleId) * config_.cycleDuration;
+        windowStart_ = config_.initialCycleTime + (cycleId_ - config_.initialCycleId) * config_.cycleDuration;
     }
 
-    function getWindowAtId(uint256 cycleId_) public view returns (uint256 windowStart_, uint256 windowEnd_) {
+    function getWindowAtId(uint256 cycleId_) public view override returns (uint256 windowStart_, uint256 windowEnd_) {
         CycleConfig memory config_ = getConfigAtId(cycleId_);
 
         windowStart_ = config_.initialCycleTime + (cycleId_ - config_.initialCycleId) * config_.cycleDuration;
@@ -363,12 +378,12 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         governor_ = IMapleGlobalsLike(globals()).governor();
     }
 
-    function poolDelegate() public view override returns (address poolDelegate_) {
-        poolDelegate_ = IPoolManagerLike(poolManager).poolDelegate();
-    }
-
     function implementation() external view override returns (address implementation_) {
         implementation_ = _implementation();
+    }
+
+    function poolDelegate() public view override returns (address poolDelegate_) {
+        poolDelegate_ = IPoolManagerLike(poolManager).poolDelegate();
     }
 
     function previewWithdraw(address owner_, uint256 assets_) external pure override returns (uint256 redeemableAssets_, uint256 resultingShares_) {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity 0.8.7;
 
-import { IWithdrawalManagerEvents  } from "./interfaces/IWithdrawalManagerEvents.sol";
+import { IWithdrawalManagerEvents }  from "./interfaces/IWithdrawalManagerEvents.sol";
 import { IWithdrawalManagerStorage } from "./interfaces/IWithdrawalManagerStorage.sol";
 
 abstract contract WithdrawalManagerStorage is IWithdrawalManagerStorage, IWithdrawalManagerEvents {
@@ -17,12 +17,5 @@ abstract contract WithdrawalManagerStorage is IWithdrawalManagerStorage, IWithdr
     mapping(uint256 => uint256) public override totalCycleShares;
 
     mapping(uint256 => CycleConfig) public override cycleConfigs;
-
-    struct CycleConfig {
-        uint64 initialCycleId;    // Identifier of the first withdrawal cycle using this configuration.
-        uint64 initialCycleTime;  // Timestamp of the first withdrawal cycle using this configuration.
-        uint64 cycleDuration;     // Duration of the withdrawal cycle.
-        uint64 windowDuration;    // Duration of the withdrawal window.
-    }
 
 }

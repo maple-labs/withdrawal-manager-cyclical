@@ -12,8 +12,9 @@ import { MockGlobals, MockPool } from "./mocks/Mocks.sol";
 
 contract WithdrawalManagerFactoryTests is TestUtils {
 
-    address poolDelegate;
     address governor;
+    address poolDelegate;
+
     address implementation;
     address initializer;
 
@@ -24,8 +25,9 @@ contract WithdrawalManagerFactoryTests is TestUtils {
     WithdrawalManagerFactory factory;
 
     function setUp() external {
-        poolDelegate   = address(new Address());
-        governor       = address(new Address());
+        governor     = address(new Address());
+        poolDelegate = address(new Address());
+
         implementation = address(new WithdrawalManager());
         initializer    = address(new WithdrawalManagerInitializer());
 
@@ -51,7 +53,6 @@ contract WithdrawalManagerFactoryTests is TestUtils {
 
         MockGlobals(globals).setValidPoolDeployer(address(this), true);
         factory.createInstance(calldata_, "SALT");
-
     }
 
     function test_createInstance_zeroPool() external {

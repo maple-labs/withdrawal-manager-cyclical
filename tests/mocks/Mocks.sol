@@ -60,6 +60,7 @@ contract MockPool is MockERC20 {
     function maxRedeem(address account_) external view returns (uint256 maxShares_) {
         uint256 accountAssets = balanceOf[account_];
         uint256 totalAssets   = _asset.balanceOf(address(this));
+
         maxShares_ = accountAssets > totalAssets ? totalAssets : accountAssets;
     }
 

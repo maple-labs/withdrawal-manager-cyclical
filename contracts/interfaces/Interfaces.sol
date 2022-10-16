@@ -39,9 +39,9 @@ interface IPoolLike {
 
 interface IPoolManagerLike {
 
-    function poolDelegate() external view returns (address poolDelegate_);
-
     function globals() external view returns (address globals_);
+
+    function poolDelegate() external view returns (address poolDelegate_);
 
     function totalAssets() external view returns (uint256 totalAssets_);
 
