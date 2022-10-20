@@ -7,6 +7,8 @@ contract MockGlobals {
 
     bool internal _isValidScheduledCall;
 
+    bool public protocolPaused;
+
     address public governor;
 
     mapping(address => bool) public isPoolDeployer;
@@ -21,6 +23,10 @@ contract MockGlobals {
 
     function __setIsValidScheduledCall(bool isValid_) external {
         _isValidScheduledCall = isValid_;
+    }
+
+    function __setProtocolPaused(bool protocolPaused_) external {
+        protocolPaused = protocolPaused_;
     }
 
     function setValidPoolDeployer(address poolDeployer_, bool isValid_) external {

@@ -60,6 +60,15 @@ import { WithdrawalManagerStorage } from "./WithdrawalManagerStorage.sol";
 
 contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, MapleProxiedInternals {
 
+    // NOTE: The following functions already check for paused state in the pool, therefore no need to check here.
+    // * addShares
+    // * removeShares
+    // * processExit
+    modifier whenProtocolNotPaused() {
+        require(!IMapleGlobalsLike(globals()).protocolPaused(), "WM:PROTOCOL_PAUSED");
+        _;
+    }
+
     /******************************************************************************************************************************/
     /*** Proxy Functions                                                                                                        ***/
     /******************************************************************************************************************************/
@@ -74,7 +83,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         _setImplementation(implementation_);
     }
 
-    function upgrade(uint256 version_, bytes calldata arguments_) external override {
+    function upgrade(uint256 version_, bytes calldata arguments_) external override whenProtocolNotPaused {
         address poolDelegate_ = poolDelegate();
 
         require(msg.sender == poolDelegate_ || msg.sender == governor(), "WM:U:NOT_AUTHORIZED");
@@ -94,7 +103,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     /*** Administrative Functions                                                                                               ***/
     /******************************************************************************************************************************/
 
-    function setExitConfig(uint256 cycleDuration_, uint256 windowDuration_) external override {
+    function setExitConfig(uint256 cycleDuration_, uint256 windowDuration_) external override whenProtocolNotPaused {
         CycleConfig memory config_ = getCurrentConfig();
 
         require(msg.sender == poolDelegate(),      "WM:SEC:NOT_AUTHORIZED");

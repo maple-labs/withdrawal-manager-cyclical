@@ -175,6 +175,19 @@ contract UpgradeTests is WithdrawalManagerTestBase {
         vm.stopPrank();
     }
 
+    function test_upgrade_failWhenPaused() external {
+        globals.__setProtocolPaused(true);
+        
+        vm.prank(governor);
+        vm.expectRevert("WM:PROTOCOL_PAUSED");
+        withdrawalManager.upgrade(2, abi.encode(address(0)));
+
+        globals.__setProtocolPaused(false);
+
+        vm.prank(governor);
+        withdrawalManager.upgrade(2, abi.encode(address(0)));
+    }
+
     function test_upgrade_notGovernor() external {
         vm.expectRevert("WM:U:NOT_AUTHORIZED");
         withdrawalManager.upgrade(2, "");
@@ -218,6 +231,19 @@ contract UpgradeTests is WithdrawalManagerTestBase {
 }
 
 contract SetExitConfigTests is WithdrawalManagerTestBase {
+
+    function test_setExitConfig_failWhenPaused() external {
+        globals.__setProtocolPaused(true);
+        
+        vm.prank(poolDelegate);
+        vm.expectRevert("WM:PROTOCOL_PAUSED");
+        withdrawalManager.setExitConfig(1, 1);
+
+        globals.__setProtocolPaused(false);
+
+        vm.prank(poolDelegate);
+        withdrawalManager.setExitConfig(1, 1);
+    }
 
     function test_setExitConfig_governor() external {
         // Governor should not be allowed.
