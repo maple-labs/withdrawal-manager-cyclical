@@ -219,7 +219,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
 
         ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = _previewRedeem(account_, lockedShares_, exitCycleId_);
 
-        // Transfer both returned shares and redeemable shares, burn only the redeemable shares in the pool.
+        // Transfer redeemable shares to be burned in the pool, relock remaining shares.
         require(ERC20Helper.transfer(pool, account_, redeemableShares_), "WM:PE:TRANSFER_FAIL");
 
         // Reduce totalCurrentShares by the shares that were used in the old cycle.
