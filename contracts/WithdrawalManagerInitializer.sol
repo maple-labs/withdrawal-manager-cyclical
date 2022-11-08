@@ -3,19 +3,40 @@ pragma solidity 0.8.7;
 
 import { MapleProxiedInternals } from "../modules/maple-proxy-factory/contracts/MapleProxiedInternals.sol";
 
-import { IPoolLike } from "./interfaces/Interfaces.sol";
+import { IPoolLike }                     from "./interfaces/Interfaces.sol";
+import { IWithdrawalManagerInitializer } from "./interfaces/IWithdrawalManagerInitializer.sol";
 
 import { WithdrawalManagerStorage } from "./WithdrawalManagerStorage.sol";
 
-contract WithdrawalManagerInitializer is WithdrawalManagerStorage, MapleProxiedInternals {
+contract WithdrawalManagerInitializer is IWithdrawalManagerInitializer, WithdrawalManagerStorage, MapleProxiedInternals {
 
     fallback() external {
-        (
+        ( address pool_, uint256 cycleDuration_, uint256 windowDuration_ ) = decodeArguments(msg.data);
+
+        _initialize(pool_, cycleDuration_, windowDuration_);
+    }
+
+    function decodeArguments(bytes calldata encodedArguments_) public pure override
+        returns (
             address pool_,
             uint256 cycleDuration_,
             uint256 windowDuration_
-        ) = abi.decode(msg.data, (address, uint256, uint256));
+        )
+    {
+        ( pool_, cycleDuration_, windowDuration_ ) = abi.decode(encodedArguments_, (address, uint256, uint256));
+    }
 
+    function encodeArguments(
+        address pool_,
+        uint256 cycleDuration_,
+        uint256 windowDuration_
+    )
+        public pure override returns (bytes memory encodedArguments_)
+    {
+        encodedArguments_ = abi.encode(pool_, cycleDuration_, windowDuration_);
+    }
+
+    function _initialize(address pool_, uint256 cycleDuration_, uint256 windowDuration_) internal {
         require(pool_           != address(0),     "WMI:ZERO_POOL");
         require(windowDuration_ != 0,              "WMI:ZERO_WINDOW");
         require(windowDuration_ <= cycleDuration_, "WMI:WINDOW_OOB");
@@ -30,6 +51,7 @@ contract WithdrawalManagerInitializer is WithdrawalManagerStorage, MapleProxiedI
             windowDuration:   uint64(windowDuration_)
         });
 
+        emit Initialized(pool_, cycleDuration_, windowDuration_);
         emit ConfigurationUpdated({
             configId_:         0,
             initialCycleId_:   1,
