@@ -207,20 +207,20 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         _emitUpdate(owner_, lockedShares_, exitCycleId_);
     }
 
-    function processExit(address account_, uint256 requestedShares_) external override returns (uint256 redeemableShares_, uint256 resultingAssets_) {
+    function processExit(uint256 requestedShares_, address owner_) external override returns (uint256 redeemableShares_, uint256 resultingAssets_) {
         require(msg.sender == poolManager, "WM:PE:NOT_PM");
 
-        uint256 exitCycleId_  = exitCycleId[account_];
-        uint256 lockedShares_ = lockedShares[account_];
+        uint256 exitCycleId_  = exitCycleId[owner_];
+        uint256 lockedShares_ = lockedShares[owner_];
 
         require(requestedShares_ == lockedShares_, "WM:PE:INVALID_SHARES");
 
         bool partialLiquidity_;
 
-        ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = _previewRedeem(account_, lockedShares_, exitCycleId_);
+        ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = _previewRedeem(owner_, lockedShares_, exitCycleId_);
 
         // Transfer redeemable shares to be burned in the pool, relock remaining shares.
-        require(ERC20Helper.transfer(pool, account_, redeemableShares_), "WM:PE:TRANSFER_FAIL");
+        require(ERC20Helper.transfer(pool, owner_, redeemableShares_), "WM:PE:TRANSFER_FAIL");
 
         // Reduce totalCurrentShares by the shares that were used in the old cycle.
         totalCycleShares[exitCycleId_] -= lockedShares_;
@@ -238,11 +238,11 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         }
 
         // Update the locked shares and cycle for the account, setting to zero if no shares are remaining.
-        lockedShares[account_] = lockedShares_;
-        exitCycleId[account_]  = exitCycleId_;
+        lockedShares[owner_] = lockedShares_;
+        exitCycleId[owner_]  = exitCycleId_;
 
-        _emitProcess(account_, redeemableShares_, resultingAssets_);
-        _emitUpdate(account_, lockedShares_, exitCycleId_);
+        _emitProcess(owner_, redeemableShares_, resultingAssets_);
+        _emitUpdate(owner_, lockedShares_, exitCycleId_);
     }
 
     /******************************************************************************************************************************/

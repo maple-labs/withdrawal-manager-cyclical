@@ -727,27 +727,27 @@ contract ProcessExitTests is WithdrawalManagerTestBase {
 
     function test_processExit_notPoolManager() external {
         vm.expectRevert("WM:PE:NOT_PM");
-        withdrawalManager.processExit(lp, 0);
+        withdrawalManager.processExit(0, lp);
     }
 
     function test_processExit_requestedSharedGtLocked() external {
         vm.startPrank(pm);
         withdrawalManager.addShares(3, lp);
         vm.expectRevert("WM:PE:INVALID_SHARES");
-        withdrawalManager.processExit(lp, 4);
+        withdrawalManager.processExit(4, lp);
     }
 
     function test_processExit_requestedSharedLtLocked() external {
         vm.startPrank(pm);
         withdrawalManager.addShares(3, lp);
         vm.expectRevert("WM:PE:INVALID_SHARES");
-        withdrawalManager.processExit(lp, 2);
+        withdrawalManager.processExit(2, lp);
     }
 
     function test_processExit_noRequest() external {
         vm.prank(pm);
         vm.expectRevert("WM:PR:NO_REQUEST");
-        withdrawalManager.processExit(lp, 0);
+        withdrawalManager.processExit(0, lp);
     }
 
     function test_processExit_preWindow() external {
@@ -757,7 +757,7 @@ contract ProcessExitTests is WithdrawalManagerTestBase {
         vm.warp(start + 2 weeks - 1);
         vm.prank(pm);
         vm.expectRevert("WM:PR:NOT_IN_WINDOW");
-        withdrawalManager.processExit(lp, 1);
+        withdrawalManager.processExit(1, lp);
     }
 
     function test_processExit_postWindow() external {
@@ -768,7 +768,7 @@ contract ProcessExitTests is WithdrawalManagerTestBase {
 
         vm.prank(pm);
         vm.expectRevert("WM:PR:NOT_IN_WINDOW");
-        withdrawalManager.processExit(lp, 1);
+        withdrawalManager.processExit(1, lp);
     }
 
     function test_processExit_lostShares() external {
@@ -783,7 +783,7 @@ contract ProcessExitTests is WithdrawalManagerTestBase {
         vm.warp(start + 2 weeks);
         vm.prank(pm);
         vm.expectRevert("WM:PE:TRANSFER_FAIL");
-        withdrawalManager.processExit(lp, 1);
+        withdrawalManager.processExit(1, lp);
     }
 
     function test_processExit_fullWithdrawal_fullLiquidity() external {
@@ -803,7 +803,7 @@ contract ProcessExitTests is WithdrawalManagerTestBase {
         vm.warp(start + 2 weeks);
         vm.prank(pm);
 
-        ( uint256 redeemableShares, uint256 resultingAssets ) = withdrawalManager.processExit(lp, 1);
+        ( uint256 redeemableShares, uint256 resultingAssets ) = withdrawalManager.processExit(1, lp);
 
         assertEq(redeemableShares, 1);
         assertEq(resultingAssets,  2);
@@ -835,7 +835,7 @@ contract ProcessExitTests is WithdrawalManagerTestBase {
         vm.prank(pm);
 
         // Only can redeem 1 share of 2 at 2:1
-        ( uint256 redeemableShares, uint256 resultingAssets ) = withdrawalManager.processExit(lp, 2);
+        ( uint256 redeemableShares, uint256 resultingAssets ) = withdrawalManager.processExit(2, lp);
 
         assertEq(redeemableShares, 1);
         assertEq(resultingAssets,  2);
@@ -866,7 +866,7 @@ contract ProcessExitTests is WithdrawalManagerTestBase {
         vm.warp(start + 2 weeks);
         vm.prank(pm);
 
-        ( uint256 redeemableShares, uint256 resultingAssets ) = withdrawalManager.processExit(lp, 1);
+        ( uint256 redeemableShares, uint256 resultingAssets ) = withdrawalManager.processExit(1, lp);
 
         assertEq(redeemableShares, 0);
         assertEq(resultingAssets,  0);
@@ -923,7 +923,7 @@ contract LockedLiquidityTests is WithdrawalManagerTestBase {
         assertEq(withdrawalManager.lockedLiquidity(), 1);
 
         vm.prank(pm);
-        withdrawalManager.processExit(lp, 1);
+        withdrawalManager.processExit(1, lp);
 
         assertEq(withdrawalManager.lockedLiquidity(), 0);
     }
@@ -936,7 +936,7 @@ contract LockedLiquidityTests is WithdrawalManagerTestBase {
         assertEq(withdrawalManager.lockedLiquidity(), 1);
 
         vm.prank(pm);
-        withdrawalManager.processExit(lp, 1);
+        withdrawalManager.processExit(1, lp);
 
         assertEq(withdrawalManager.lockedLiquidity(), 0);
     }
@@ -988,17 +988,17 @@ contract ProcessExitWithMultipleUsers is WithdrawalManagerTestBase {
 
         // Process all exits
         vm.startPrank(address(poolManager));
-        ( uint256 redeemableShares,  uint256 resultingAssets )  = withdrawalManager.processExit(lp,  100);
+        ( uint256 redeemableShares,  uint256 resultingAssets )  = withdrawalManager.processExit(100, lp);
         asset.burn(address(pool), resultingAssets);
         pool.burn(address(lp),    redeemableShares);
         poolManager.__setTotalAssets(poolManager.totalAssets() - resultingAssets);
 
-        ( uint256 redeemableShares2, uint256 resultingAssets2 ) = withdrawalManager.processExit(lp2, 300);
+        ( uint256 redeemableShares2, uint256 resultingAssets2 ) = withdrawalManager.processExit(300, lp2);
         asset.burn(address(pool), resultingAssets2);
         pool.burn(address(lp2),   redeemableShares2);
         poolManager.__setTotalAssets(poolManager.totalAssets() - resultingAssets2);
 
-        ( uint256 redeemableShares3, uint256 resultingAssets3 ) = withdrawalManager.processExit(lp3, 400);
+        ( uint256 redeemableShares3, uint256 resultingAssets3 ) = withdrawalManager.processExit(400, lp3);
         asset.burn(address(pool), resultingAssets3);
         pool.burn(address(lp3),   redeemableShares3);
         poolManager.__setTotalAssets(poolManager.totalAssets() - resultingAssets3);
@@ -1059,12 +1059,12 @@ contract ProcessExitWithMultipleUsers is WithdrawalManagerTestBase {
 
         // Process all exits
         vm.startPrank(address(poolManager));
-        ( uint256 redeemableShares,  uint256 resultingAssets )  = withdrawalManager.processExit(lp,  100);
+        ( uint256 redeemableShares,  uint256 resultingAssets )  = withdrawalManager.processExit(100, lp);
         asset.burn(address(pool), resultingAssets);
         pool.burn(address(lp),    redeemableShares);
         poolManager.__setTotalAssets(poolManager.totalAssets() - resultingAssets);
 
-        ( uint256 redeemableShares2, uint256 resultingAssets2 ) = withdrawalManager.processExit(lp2, 300);
+        ( uint256 redeemableShares2, uint256 resultingAssets2 ) = withdrawalManager.processExit(300, lp2);
         asset.burn(address(pool), resultingAssets2);
         pool.burn(address(lp2),   redeemableShares2);
         poolManager.__setTotalAssets(poolManager.totalAssets() - resultingAssets2);

@@ -20,10 +20,10 @@ interface IWithdrawalManager is IMapleProxied, IWithdrawalManagerStorage {
 
     /**
      *  @dev   Process the exit of an account.
-     *  @param account_         Address of the account process exit from.
      *  @param requestedShares_ Amount of initially requested shares.
+     *  @param owner_           Address of the account which will be processed for exit.
      */
-    function processExit(address account_, uint256 requestedShares_) external returns (uint256 redeemableShares_, uint256 resultingAssets_);
+    function processExit(uint256 requestedShares_, address owner_) external returns (uint256 redeemableShares_, uint256 resultingAssets_);
 
     /**
      *  @dev   Remove shares to the withdrawal manager.
