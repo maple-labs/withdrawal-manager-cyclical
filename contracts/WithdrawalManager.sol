@@ -213,11 +213,17 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         uint256 exitCycleId_  = exitCycleId[owner_];
         uint256 lockedShares_ = lockedShares[owner_];
 
+        require(lockedShares_ != 0, "WM:PE:NO_REQUEST");
+
         require(requestedShares_ == lockedShares_, "WM:PE:INVALID_SHARES");
 
         bool partialLiquidity_;
 
-        ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = _previewRedeem(owner_, lockedShares_, exitCycleId_);
+        ( uint256 windowStart_, uint256 windowEnd_ ) = getWindowAtId(exitCycleId_);
+
+        require(block.timestamp >= windowStart_ && block.timestamp <  windowEnd_, "WM:PE:NOT_IN_WINDOW");
+
+        ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = getRedeemableAmounts(lockedShares_, owner_);
 
         // Transfer redeemable shares to be burned in the pool, relock remaining shares.
         require(ERC20Helper.transfer(pool, owner_, redeemableShares_), "WM:PE:TRANSFER_FAIL");
@@ -275,11 +281,21 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     }
 
     function previewRedeem(address owner_, uint256 shares_) external view override returns (uint256 redeemableShares_, uint256 resultingAssets_) {
-        uint256 exitCycleId_ = exitCycleId[owner_];
+        uint256 lockedShares_ = lockedShares[owner_];
 
-        require(shares_ == lockedShares[owner_], "WM:PR:INVALID_SHARES");
+        if(shares_ != lockedShares_ || shares_ == 0) {
+            return ( redeemableShares_, resultingAssets_ );
+        }
 
-        ( redeemableShares_, resultingAssets_, ) = _previewRedeem(owner_, shares_, exitCycleId_);
+        uint256 exitCycleId_  = exitCycleId[owner_];
+
+        ( uint256 windowStart_, uint256 windowEnd_ ) = getWindowAtId(exitCycleId_);
+
+        if(block.timestamp < windowStart_ && block.timestamp >=  windowEnd_) {
+            return ( redeemableShares_, resultingAssets_ );
+        }
+
+        ( redeemableShares_, resultingAssets_, ) = getRedeemableAmounts(lockedShares_, owner_);
     }
 
     /******************************************************************************************************************************/
@@ -348,26 +364,6 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     }
 
     /******************************************************************************************************************************/
-    /*** Internal View Utility Functions                                                                                        ***/
-    /******************************************************************************************************************************/
-
-    function _previewRedeem(
-        address owner_,
-        uint256 lockedShares_,
-        uint256 exitCycleId_
-    )
-        internal view returns (uint256 redeemableShares_, uint256 resultingAssets_, bool partialLiquidity_)
-    {
-        require(lockedShares_ != 0, "WM:PR:NO_REQUEST");
-
-        ( uint256 windowStart_, uint256 windowEnd_ ) = getWindowAtId(exitCycleId_);
-
-        require(block.timestamp >= windowStart_ && block.timestamp <  windowEnd_, "WM:PR:NOT_IN_WINDOW");
-
-        ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = getRedeemableAmounts(lockedShares_, owner_);
-    }
-
-    /******************************************************************************************************************************/
     /*** Address View Functions                                                                                                 ***/
     /******************************************************************************************************************************/
 
@@ -397,7 +393,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
 
     function previewWithdraw(address owner_, uint256 assets_) external pure override returns (uint256 redeemableAssets_, uint256 resultingShares_) {
         owner_; assets_; redeemableAssets_; resultingShares_;  // Silence compiler warnings
-        require(false, "WM:PW:NOT_ENABLED");
+        return ( redeemableAssets_, resultingShares_ );  // NOTE: Withdrawal not implemented use redeem instead
     }
 
     /******************************************************************************************************************************/

@@ -177,7 +177,7 @@ contract UpgradeTests is WithdrawalManagerTestBase {
 
     function test_upgrade_failWhenPaused() external {
         globals.__setProtocolPaused(true);
-        
+
         vm.prank(governor);
         vm.expectRevert("WM:PROTOCOL_PAUSED");
         withdrawalManager.upgrade(2, abi.encode(address(0)));
@@ -234,7 +234,7 @@ contract SetExitConfigTests is WithdrawalManagerTestBase {
 
     function test_setExitConfig_failWhenPaused() external {
         globals.__setProtocolPaused(true);
-        
+
         vm.prank(poolDelegate);
         vm.expectRevert("WM:PROTOCOL_PAUSED");
         withdrawalManager.setExitConfig(1, 1);
@@ -746,7 +746,7 @@ contract ProcessExitTests is WithdrawalManagerTestBase {
 
     function test_processExit_noRequest() external {
         vm.prank(pm);
-        vm.expectRevert("WM:PR:NO_REQUEST");
+        vm.expectRevert("WM:PE:NO_REQUEST");
         withdrawalManager.processExit(0, lp);
     }
 
@@ -756,7 +756,7 @@ contract ProcessExitTests is WithdrawalManagerTestBase {
 
         vm.warp(start + 2 weeks - 1);
         vm.prank(pm);
-        vm.expectRevert("WM:PR:NOT_IN_WINDOW");
+        vm.expectRevert("WM:PE:NOT_IN_WINDOW");
         withdrawalManager.processExit(1, lp);
     }
 
@@ -767,7 +767,7 @@ contract ProcessExitTests is WithdrawalManagerTestBase {
         vm.warp(start + 2 weeks + 2 days);
 
         vm.prank(pm);
-        vm.expectRevert("WM:PR:NOT_IN_WINDOW");
+        vm.expectRevert("WM:PE:NOT_IN_WINDOW");
         withdrawalManager.processExit(1, lp);
     }
 
@@ -1105,9 +1105,11 @@ contract ViewFunctionTests is WithdrawalManagerTestBase {
         assertTrue(!withdrawalManager.isInExitWindow(lp));
     }
 
-    function testFuzz_previewWithdraw_alwaysFails(address user, uint256 amount) external {
-        vm.expectRevert("WM:PW:NOT_ENABLED");
-        withdrawalManager.previewWithdraw(user, amount);
+    function testFuzz_previewWithdraw_alwaysReturnsZero(address user, uint256 amount) external {
+        ( uint256 redeemableAssets_, uint256 resultingShares_ ) = withdrawalManager.previewWithdraw(user, amount);
+
+        assertEq(redeemableAssets_, 0);
+        assertEq(resultingShares_,  0);
     }
 
 }
