@@ -283,7 +283,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     function previewRedeem(address owner_, uint256 shares_) external view override returns (uint256 redeemableShares_, uint256 resultingAssets_) {
         uint256 lockedShares_ = lockedShares[owner_];
 
-        if(shares_ != lockedShares_ || shares_ == 0) {
+        if (shares_ != lockedShares_ || shares_ == 0) {
             return ( redeemableShares_, resultingAssets_ );
         }
 
@@ -291,7 +291,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
 
         ( uint256 windowStart_, uint256 windowEnd_ ) = getWindowAtId(exitCycleId_);
 
-        if(block.timestamp < windowStart_ && block.timestamp >=  windowEnd_) {
+        if (block.timestamp < windowStart_ || block.timestamp >=  windowEnd_) {
             return ( redeemableShares_, resultingAssets_ );
         }
 
