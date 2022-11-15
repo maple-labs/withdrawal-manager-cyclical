@@ -104,24 +104,24 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     /******************************************************************************************************************************/
 
     function setExitConfig(uint256 cycleDuration_, uint256 windowDuration_) external override whenProtocolNotPaused {
-        CycleConfig memory config_ = getCurrentConfig();
-
         require(msg.sender == poolDelegate(),      "WM:SEC:NOT_AUTHORIZED");
         require(windowDuration_ != 0,              "WM:SEC:ZERO_WINDOW");
         require(windowDuration_ <= cycleDuration_, "WM:SEC:WINDOW_OOB");
-
-        require(
-            cycleDuration_  != config_.cycleDuration ||
-            windowDuration_ != config_.windowDuration,
-            "WM:SEC:IDENTICAL_CONFIG"
-        );
 
         // The new config will take effect only after the current cycle and two additional ones elapse.
         // This is done in order to to prevent overlaps between the current and new withdrawal cycles.
         uint256 currentCycleId_   = getCurrentCycleId();
         uint256 initialCycleId_   = currentCycleId_ + 3;
-        uint256 initialCycleTime_ = getWindowStart(currentCycleId_) + 3 * config_.cycleDuration;
+        uint256 initialCycleTime_ = getWindowStart(currentCycleId_);
         uint256 latestConfigId_   = latestConfigId;
+
+        // This isn't the most optimal way to do this, since the internal function `getConfigAt` iterates through configs.
+        // But this function is supposed to be called only by the pool delegate and not often and, at most, we need to iterate through 3 cycles.
+        for (uint256 i = currentCycleId_; i < initialCycleId_; i++) {
+            CycleConfig memory config = getConfigAtId(i);
+
+            initialCycleTime_ += config.cycleDuration;
+        }
 
         // If the new config takes effect on the same cycle as the latest config, overwrite it. Otherwise create a new config.
         if (initialCycleId_ != cycleConfigs[latestConfigId_].initialCycleId) {
