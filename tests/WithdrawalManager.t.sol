@@ -110,19 +110,6 @@ contract MigrateTests is WithdrawalManagerTestBase {
         migrator = address(new MockWithdrawalManagerMigrator());
     }
 
-    function test_migrate_failWhenPaused() external {
-        globals.__setProtocolPaused(true);
-
-        vm.prank(address(factory));
-        vm.expectRevert("WM:PROTOCOL_PAUSED");
-        withdrawalManager.migrate(migrator, abi.encode(address(0)));
-
-        globals.__setProtocolPaused(false);
-
-        vm.prank(address(factory));
-        withdrawalManager.migrate(migrator, abi.encode(address(0)));
-    }
-
     function test_migrate_notFactory() external {
         vm.expectRevert("WM:M:NOT_FACTORY");
         withdrawalManager.migrate(migrator, "");
@@ -186,19 +173,6 @@ contract UpgradeTests is WithdrawalManagerTestBase {
         factory.registerImplementation(2, newImplementation, initializer);
         factory.enableUpgradePath(1, 2, migrator);
         vm.stopPrank();
-    }
-
-    function test_upgrade_failWhenPaused() external {
-        globals.__setProtocolPaused(true);
-
-        vm.prank(governor);
-        vm.expectRevert("MPF:UI:FAILED");
-        withdrawalManager.upgrade(2, abi.encode(address(0)));
-
-        globals.__setProtocolPaused(false);
-
-        vm.prank(governor);
-        withdrawalManager.upgrade(2, abi.encode(address(0)));
     }
 
     function test_upgrade_notGovernor() external {

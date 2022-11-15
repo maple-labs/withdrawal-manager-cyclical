@@ -73,7 +73,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     /*** Proxy Functions                                                                                                        ***/
     /******************************************************************************************************************************/
 
-    function migrate(address migrator_, bytes calldata arguments_) external override whenProtocolNotPaused {
+    function migrate(address migrator_, bytes calldata arguments_) external override {
         require(msg.sender == _factory(),        "WM:M:NOT_FACTORY");
         require(_migrate(migrator_, arguments_), "WM:M:FAILED");
     }
