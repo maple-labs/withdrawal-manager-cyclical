@@ -1,6 +1,10 @@
 # Withdrawal Manager
 
-![Foundry CI](https://github.com/maple-labs/withdrawal-manager/actions/workflows/forge.yml/badge.svg) [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![Foundry][foundry-badge]][foundry]
+![Foundry CI](https://github.com/maple-labs/withdrawal-manager/actions/workflows/forge.yml/badge.svg)
+
+[foundry]: https://getfoundry.sh/
+[foundry-badge]: https://img.shields.io/badge/Built%20with-Foundry-FFDB1C.svg
 
 ## Overview
 
@@ -48,5 +52,5 @@ For all technical documentation related to the Maple V2 protocol, please refer t
 ---
 
 <p align="center">
-  <img src="https://user-images.githubusercontent.com/44272939/116272804-33e78d00-a74f-11eb-97ab-77b7e13dc663.png" height="100" />
+  <img src="https://user-images.githubusercontent.com/44272939/196706799-fe96d294-f700-41e7-a65f-2d754d0a6eac.gif" height="100" />
 </p>
