@@ -347,7 +347,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
                 ? lockedShares_ * availableLiquidity_ / totalRequestedLiquidity_
                 : lockedShares_;
 
-        resultingAssets_ = totalAssetsWithLosses_ * redeemableShares_ / totalSupply_;
+        resultingAssets_ = redeemableShares_ * totalAssetsWithLosses_ / totalSupply_;
     }
 
     function getWindowStart(uint256 cycleId_) public view override returns (uint256 windowStart_) {
