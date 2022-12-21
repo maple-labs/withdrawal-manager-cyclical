@@ -10,10 +10,6 @@ import { WithdrawalManagerInitializer } from "../contracts/WithdrawalManagerInit
 
 import { MockGlobals, MockPool, MockPoolManager, MockWithdrawalManagerMigrator } from "./mocks/Mocks.sol";
 
-// TODO: Add test cases with multiple lp's withdrawing within the same window.
-// TODO: Add test cases when exchange rate is below one.
-// TODO: Add test cases for when configuration is updated before / during / after the withdrawal request / execution.
-
 contract WithdrawalManagerTestBase is TestUtils {
 
     address poolDelegate;
