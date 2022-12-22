@@ -5,11 +5,11 @@ import { MockERC20 } from "../../modules/erc20/contracts/test/mocks/MockERC20.so
 
 contract MockGlobals {
 
+    address public governor;
+
     bool internal _isValidScheduledCall;
 
     bool public protocolPaused;
-
-    address public governor;
 
     mapping(address => bool) public isPoolDeployer;
 
@@ -21,6 +21,12 @@ contract MockGlobals {
         isValid_ = _isValidScheduledCall;
     }
 
+    function setValidPoolDeployer(address poolDeployer_, bool isValid_) external {
+        isPoolDeployer[poolDeployer_] = isValid_;
+    }
+
+    function unscheduleCall(address, bytes32, bytes calldata) external {}
+
     function __setIsValidScheduledCall(bool isValid_) external {
         _isValidScheduledCall = isValid_;
     }
@@ -29,12 +35,6 @@ contract MockGlobals {
         protocolPaused = protocolPaused_;
     }
 
-    function setValidPoolDeployer(address poolDeployer_, bool isValid_) external {
-        isPoolDeployer[poolDeployer_] = isValid_;
-    }
-
-    function unscheduleCall(address, bytes32, bytes calldata) external {}
-
 }
 
 contract MockPool is MockERC20 {
@@ -42,11 +42,19 @@ contract MockPool is MockERC20 {
     address public manager;
     address public poolDelegate;
 
-    uint256 sharePrice;
+    uint256 public sharePrice;
 
     MockERC20 _asset;
 
-    constructor(string memory name_, string memory symbol_, uint8 decimals_, address asset_, address poolDelegate_) MockERC20(name_, symbol_, decimals_) {
+    constructor(
+        string memory name_,
+        string memory symbol_,
+        uint8 decimals_,
+        address asset_,
+        address poolDelegate_
+    )
+        MockERC20(name_, symbol_, decimals_)
+    {
         _asset = MockERC20(asset_);
 
         poolDelegate = poolDelegate_;
@@ -80,12 +88,12 @@ contract MockPool is MockERC20 {
         _asset.transfer(receiver_, assets_);
     }
 
-    function __setSharePrice(uint256 sharePrice_) external {
-        sharePrice = sharePrice_;
-    }
-
     function __setPoolManager(address poolManager_) external {
         manager = poolManager_;
+    }
+
+    function __setSharePrice(uint256 sharePrice_) external {
+        sharePrice = sharePrice_;
     }
 
 }
@@ -100,9 +108,9 @@ contract MockPoolManager {
     uint256 public unrealizedLosses;
 
     constructor(address pool_, address poolDelegate_, address globals_) {
-        poolDelegate = poolDelegate_;
         globals      = globals_;
         pool         = pool_;
+        poolDelegate = poolDelegate_;
     }
 
     function __setTotalAssets(uint256 totalAssets_) external {
@@ -117,7 +125,7 @@ contract MockPoolManager {
 
 contract MockWithdrawalManagerMigrator {
 
-    address pool;
+    address public pool;
 
     fallback() external {
         pool = abi.decode(msg.data, (address));

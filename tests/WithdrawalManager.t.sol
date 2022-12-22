@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.7;
 
-import { console, Address, TestUtils } from "../modules/contract-test-utils/contracts/test.sol";
-import { MockERC20 }                   from "../modules/erc20/contracts/test/mocks/MockERC20.sol";
+import { Address, TestUtils } from "../modules/contract-test-utils/contracts/test.sol";
+import { MockERC20 }          from "../modules/erc20/contracts/test/mocks/MockERC20.sol";
 
 import { WithdrawalManager }            from "../contracts/WithdrawalManager.sol";
 import { WithdrawalManagerFactory }     from "../contracts/WithdrawalManagerFactory.sol";
@@ -12,36 +12,36 @@ import { MockGlobals, MockPool, MockPoolManager, MockWithdrawalManagerMigrator }
 
 contract WithdrawalManagerTestBase is TestUtils {
 
-    address poolDelegate;
-    address governor;
-    address implementation;
-    address initializer;
-    address lp;
-    address wm;
+    address internal governor;
+    address internal implementation;
+    address internal initializer;
+    address internal lp;
+    address internal poolDelegate;
+    address internal wm;
 
-    uint256 start;
+    uint256 internal start;
 
-    MockERC20       asset;
-    MockGlobals     globals;
-    MockPool        pool;
-    MockPoolManager poolManager;
+    MockERC20       internal asset;
+    MockGlobals     internal globals;
+    MockPool        internal pool;
+    MockPoolManager internal poolManager;
 
-    WithdrawalManagerFactory factory;
+    WithdrawalManager internal withdrawalManager;
 
-    WithdrawalManager withdrawalManager;
+    WithdrawalManagerFactory internal factory;
 
     function setUp() public virtual {
-        poolDelegate   = address(new Address());
         governor       = address(new Address());
         implementation = address(new WithdrawalManager());
         initializer    = address(new WithdrawalManagerInitializer());
         lp             = address(new Address());
+        poolDelegate   = address(new Address());
 
         start = 1641164400;
 
         // Create all mocks.
-        globals     = new MockGlobals(address(governor));
         asset       = new MockERC20("Wrapped Ether", "WETH", 18);
+        globals     = new MockGlobals(address(governor));
         pool        = new MockPool("Maple Pool", "MP-WETH", 18, address(asset), poolDelegate);
         poolManager = new MockPoolManager(address(pool), poolDelegate, address(globals));
 
@@ -98,7 +98,7 @@ contract WithdrawalManagerTestBase is TestUtils {
 
 contract MigrateTests is WithdrawalManagerTestBase {
 
-    address migrator;
+    address internal migrator;
 
     function setUp() public override {
         super.setUp();
@@ -130,7 +130,7 @@ contract MigrateTests is WithdrawalManagerTestBase {
 
 contract SetImplementationTests is WithdrawalManagerTestBase {
 
-    address newImplementation;
+    address internal newImplementation;
 
     function setUp() public override {
         super.setUp();
@@ -156,8 +156,8 @@ contract SetImplementationTests is WithdrawalManagerTestBase {
 
 contract UpgradeTests is WithdrawalManagerTestBase {
 
-    address migrator;
-    address newImplementation;
+    address internal migrator;
+    address internal newImplementation;
 
     function setUp() public override {
         super.setUp();
@@ -344,7 +344,7 @@ contract SetExitConfigTests is WithdrawalManagerTestBase {
         assertConfig({
             configurationId:  2,
             initialCycleId:   1     + 3             + 1,
-            initialCycleTime: start + (1 weeks * 3) + 2 weeks, // 3 weeks for cycles 1-3 + 2 weeks for cycle 4
+            initialCycleTime: start + (1 weeks * 3) + 2 weeks,  // 3 weeks for cycles 1-3 + 2 weeks for cycle 4
             cycleDuration:    3 weeks,
             windowDuration:   3 days
         });
@@ -396,7 +396,7 @@ contract SetExitConfigTests is WithdrawalManagerTestBase {
         assertConfig({
             configurationId:  1,
             initialCycleId:   2     + 3,
-            initialCycleTime: start + 1 weeks + (1 weeks * 3), // Starting at cycle 2 + 3 cycles
+            initialCycleTime: start + 1 weeks + (1 weeks * 3),  // Starting at cycle 2 + 3 cycles
             cycleDuration:    2 weeks,
             windowDuration:   5 days
         });
@@ -411,7 +411,7 @@ contract SetExitConfigTests is WithdrawalManagerTestBase {
         assertConfig({
             configurationId:  1,
             initialCycleId:   2     + 3,
-            initialCycleTime: start + 1 weeks + (1 weeks * 3), // Starting at cycle 2 + 3 cycles
+            initialCycleTime: start + 1 weeks + (1 weeks * 3),  // Starting at cycle 2 + 3 cycles
             cycleDuration:    4 weeks,
             windowDuration:   1 days
         });
@@ -429,7 +429,7 @@ contract SetExitConfigTests is WithdrawalManagerTestBase {
         assertConfig({
             configurationId:  1,
             initialCycleId:   2     + 3,
-            initialCycleTime: start + 1 weeks + (1 weeks * 3), // Starting at cycle 2 + 3 cycles
+            initialCycleTime: start + 1 weeks + (1 weeks * 3),  // Starting at cycle 2 + 3 cycles
             cycleDuration:    4 weeks,
             windowDuration:   1 days
         });
@@ -437,7 +437,7 @@ contract SetExitConfigTests is WithdrawalManagerTestBase {
         assertConfig({
             configurationId:  2,
             initialCycleId:   3     + 3,
-            initialCycleTime: start + 1 weeks + (1 weeks * 3) + 4 weeks, // Starting at cycle 3 + 3 cycles (2 at config 0 one at config 1)
+            initialCycleTime: start + 1 weeks + (1 weeks * 3) + 4 weeks,  // Starting at cycle 3 + 3 cycles (2 at config 0 one at config 1)
             cycleDuration:    3 weeks,
             windowDuration:   1 days
         });
@@ -454,7 +454,7 @@ contract SetExitConfigTests is WithdrawalManagerTestBase {
         assertConfig({
             configurationId:  3,
             initialCycleId:   4     + 3,
-            initialCycleTime: start + 1 weeks + (1 weeks * 3) + 4 weeks + 3 weeks, // Starting at cycle 4 + 3 cycles (1 at config 0, 1 at config 1, one at config 2)
+            initialCycleTime: start + 1 weeks + (1 weeks * 3) + 4 weeks + 3 weeks,  // Starting at cycle 4 + 3 cycles (1 at config 0, 1 at config 1, one at config 2)
             cycleDuration:    4 weeks,
             windowDuration:   4 days
         });
@@ -468,7 +468,7 @@ contract SetExitConfigTests is WithdrawalManagerTestBase {
         assertConfig({
             configurationId:  3,
             initialCycleId:   4     + 3,
-            initialCycleTime: start + 1 weeks + (1 weeks * 3) + 4 weeks + 3 weeks, // Starting at cycle 4 + 3 cycles (1 at config 0, 1 at config 1, one at config 2)
+            initialCycleTime: start + 1 weeks + (1 weeks * 3) + 4 weeks + 3 weeks,  // Starting at cycle 4 + 3 cycles (1 at config 0, 1 at config 1, one at config 2)
             cycleDuration:    2 weeks,
             windowDuration:   2 days
         });
@@ -478,7 +478,7 @@ contract SetExitConfigTests is WithdrawalManagerTestBase {
 
 contract AddSharesTests is WithdrawalManagerTestBase {
 
-    address pm;
+    address internal pm;
 
     function setUp() public override {
         super.setUp();
@@ -649,7 +649,7 @@ contract AddSharesTests is WithdrawalManagerTestBase {
 
 contract RemoveSharesTests is WithdrawalManagerTestBase {
 
-    address pm;
+    address internal pm;
 
     function setUp() public override {
         super.setUp();
@@ -789,7 +789,7 @@ contract RemoveSharesTests is WithdrawalManagerTestBase {
 
 contract ProcessExitTests is WithdrawalManagerTestBase {
 
-    address pm;
+    address internal pm;
 
     function setUp() public override {
         super.setUp();
@@ -962,7 +962,7 @@ contract ProcessExitTests is WithdrawalManagerTestBase {
 
 contract LockedLiquidityTests is WithdrawalManagerTestBase {
 
-    address pm;
+    address internal pm;
 
     function setUp() public override {
         super.setUp();
@@ -1023,8 +1023,8 @@ contract LockedLiquidityTests is WithdrawalManagerTestBase {
 
 contract ProcessExitWithMultipleUsers is WithdrawalManagerTestBase {
 
-    address lp2;
-    address lp3;
+    address internal lp2;
+    address internal lp3;
 
     function setUp() public override{
         super.setUp();

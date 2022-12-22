@@ -18,7 +18,8 @@ interface IWithdrawalManagerStorage {
      *  @return cycleDuration    Duration of the withdrawal cycle.
      *  @return windowDuration   Duration of the withdrawal window.
      */
-    function cycleConfigs(uint256 configId_) external returns (uint64 initialCycleId, uint64 initialCycleTime, uint64 cycleDuration, uint64 windowDuration);
+    function cycleConfigs(uint256 configId_)
+        external returns (uint64 initialCycleId, uint64 initialCycleTime, uint64 cycleDuration, uint64 windowDuration);
 
     /**
      *  @dev    Gets the id of the cycle that account can exit on.
@@ -29,7 +30,7 @@ interface IWithdrawalManagerStorage {
 
     /**
      *  @dev    Gets the most recent configuration id.
-     *  @return configId_ The id of the mostrecent configuration.
+     *  @return configId_ The id of the most recent configuration.
      */
     function latestConfigId() external view returns (uint256 configId_);
 

@@ -12,24 +12,23 @@ import { MockGlobals, MockPool } from "./mocks/Mocks.sol";
 
 contract WithdrawalManagerFactoryTests is TestUtils {
 
-    address governor;
-    address poolDelegate;
+    address internal governor;
+    address internal poolDelegate;
 
-    address implementation;
-    address initializer;
+    address internal implementation;
+    address internal initializer;
 
-    MockERC20   asset;
-    MockGlobals globals;
-    MockPool    pool;
+    MockERC20   internal asset;
+    MockGlobals internal globals;
+    MockPool    internal pool;
 
-    WithdrawalManagerFactory factory;
+    WithdrawalManagerFactory internal factory;
 
     function setUp() external {
-        governor     = address(new Address());
-        poolDelegate = address(new Address());
-
+        governor       = address(new Address());
         implementation = address(new WithdrawalManager());
         initializer    = address(new WithdrawalManagerInitializer());
+        poolDelegate   = address(new Address());
 
         asset   = new MockERC20("Wrapped Ether", "WETH", 18);
         globals = new MockGlobals(address(governor));

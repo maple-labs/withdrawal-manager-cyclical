@@ -7,9 +7,9 @@ import { IWithdrawalManagerStorage } from "./IWithdrawalManagerStorage.sol";
 
 interface IWithdrawalManager is IMapleProxied, IWithdrawalManagerStorage {
 
-    /******************************************************************************************************************************/
-    /*** State Changing Functions                                                                                               ***/
-    /******************************************************************************************************************************/
+    /**************************************************************************************************************************************/
+    /*** State Changing Functions                                                                                                       ***/
+    /**************************************************************************************************************************************/
 
     /**
      *  @dev   Add shares to the withdrawal manager.
@@ -39,9 +39,9 @@ interface IWithdrawalManager is IMapleProxied, IWithdrawalManagerStorage {
      */
     function setExitConfig(uint256 cycleDuration_, uint256 windowDuration_) external;
 
-    /******************************************************************************************************************************/
-    /*** View Functions                                                                                                         ***/
-    /******************************************************************************************************************************/
+    /**************************************************************************************************************************************/
+    /*** View Functions                                                                                                                 ***/
+    /**************************************************************************************************************************************/
 
     /**
      *  @dev    Gets the asset address used in this withdrawal manager.
@@ -76,7 +76,8 @@ interface IWithdrawalManager is IMapleProxied, IWithdrawalManagerStorage {
      *  @return resultingAssets_  The corresponding amount of assets that can be redeemed using the shares.
      *  @return partialLiquidity_ Boolean indicating if there is enough liquidity to facilitate a full redemption.
      */
-    function getRedeemableAmounts(uint256 lockedShares_, address owner_) external view returns (uint256 redeemableShares_, uint256 resultingAssets_, bool partialLiquidity_);
+    function getRedeemableAmounts(uint256 lockedShares_, address owner_)
+        external view returns (uint256 redeemableShares_, uint256 resultingAssets_, bool partialLiquidity_);
 
     /**
      *  @dev    Gets the timestamp of the beginning of the withdrawal window for a given cycle.

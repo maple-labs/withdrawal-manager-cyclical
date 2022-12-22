@@ -11,7 +11,13 @@ interface IWithdrawalManagerEvents {
      *  @param cycleDuration_    The new duration of the withdrawal cycle.
      *  @param windowDuration_   The new duration of the withdrawal window.
      */
-    event ConfigurationUpdated(uint256 indexed configId_, uint64 initialCycleId_, uint64 initialCycleTime_, uint64 cycleDuration_, uint64 windowDuration_);
+    event ConfigurationUpdated(
+        uint256 indexed configId_,
+        uint64 initialCycleId_,
+        uint64 initialCycleTime_,
+        uint64 cycleDuration_,
+        uint64 windowDuration_
+    );
 
     /**
      *  @dev   Emitted when a withdrawal request is cancelled.

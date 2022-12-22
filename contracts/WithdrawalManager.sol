@@ -69,9 +69,9 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         _;
     }
 
-    /******************************************************************************************************************************/
-    /*** Proxy Functions                                                                                                        ***/
-    /******************************************************************************************************************************/
+    /**************************************************************************************************************************************/
+    /*** Proxy Functions                                                                                                                ***/
+    /**************************************************************************************************************************************/
 
     function migrate(address migrator_, bytes calldata arguments_) external override {
         require(msg.sender == _factory(),        "WM:M:NOT_FACTORY");
@@ -99,9 +99,9 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         IMapleProxyFactory(_factory()).upgradeInstance(version_, arguments_);
     }
 
-    /******************************************************************************************************************************/
-    /*** Administrative Functions                                                                                               ***/
-    /******************************************************************************************************************************/
+    /**************************************************************************************************************************************/
+    /*** Administrative Functions                                                                                                       ***/
+    /**************************************************************************************************************************************/
 
     function setExitConfig(uint256 cycleDuration_, uint256 windowDuration_) external override whenProtocolNotPaused {
         require(msg.sender == poolDelegate(),      "WM:SEC:NOT_AUTHORIZED");
@@ -116,7 +116,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         uint256 latestConfigId_   = latestConfigId;
 
         // This isn't the most optimal way to do this, since the internal function `getConfigAt` iterates through configs.
-        // But this function is supposed to be called only by the pool delegate and not often and, at most, we need to iterate through 3 cycles.
+        // But this function should only be called by the pool delegate and not often, and, at most, we need to iterate through 3 cycles.
         for (uint256 i = currentCycleId_; i < initialCycleId_; i++) {
             CycleConfig memory config = getConfigAtId(i);
 
@@ -144,9 +144,9 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         });
     }
 
-    /******************************************************************************************************************************/
-    /*** Exit Functions                                                                                                         ***/
-    /******************************************************************************************************************************/
+    /**************************************************************************************************************************************/
+    /*** Exit Functions                                                                                                                 ***/
+    /**************************************************************************************************************************************/
 
     function addShares(uint256 shares_, address owner_) external override {
         require(msg.sender == poolManager, "WM:AS:NOT_POOL_MANAGER");
@@ -207,7 +207,9 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         _emitUpdate(owner_, lockedShares_, exitCycleId_);
     }
 
-    function processExit(uint256 requestedShares_, address owner_) external override returns (uint256 redeemableShares_, uint256 resultingAssets_) {
+    function processExit(uint256 requestedShares_, address owner_)
+        external override returns (uint256 redeemableShares_, uint256 resultingAssets_)
+    {
         require(msg.sender == poolManager, "WM:PE:NOT_PM");
 
         uint256 exitCycleId_  = exitCycleId[owner_];
@@ -225,7 +227,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
 
         ( redeemableShares_, resultingAssets_, partialLiquidity_ ) = getRedeemableAmounts(lockedShares_, owner_);
 
-        // Transfer redeemable shares to be burned in the pool, relock remaining shares.
+        // Transfer redeemable shares to be burned in the pool, re-lock remaining shares.
         require(ERC20Helper.transfer(pool, owner_, redeemableShares_), "WM:PE:TRANSFER_FAIL");
 
         // Reduce totalCurrentShares by the shares that were used in the old cycle.
@@ -251,9 +253,9 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         _emitUpdate(owner_, lockedShares_, exitCycleId_);
     }
 
-    /******************************************************************************************************************************/
-    /*** External View Utility Functions                                                                                        ***/
-    /******************************************************************************************************************************/
+    /**************************************************************************************************************************************/
+    /*** External View Utility Functions                                                                                                ***/
+    /**************************************************************************************************************************************/
 
     function isInExitWindow(address owner_) external view override returns (bool isInExitWindow_) {
         uint256 exitCycleId_ = exitCycleId[owner_];
@@ -280,7 +282,9 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         }
     }
 
-    function previewRedeem(address owner_, uint256 shares_) external view override returns (uint256 redeemableShares_, uint256 resultingAssets_) {
+    function previewRedeem(address owner_, uint256 shares_)
+        external view override returns (uint256 redeemableShares_, uint256 resultingAssets_)
+    {
         uint256 lockedShares_ = lockedShares[owner_];
 
         if (shares_ != lockedShares_ || shares_ == 0) {
@@ -298,9 +302,9 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         ( redeemableShares_, resultingAssets_, ) = getRedeemableAmounts(lockedShares_, owner_);
     }
 
-    /******************************************************************************************************************************/
-    /*** Public View Utility Functions                                                                                          ***/
-    /******************************************************************************************************************************/
+    /**************************************************************************************************************************************/
+    /*** Public View Utility Functions                                                                                                  ***/
+    /**************************************************************************************************************************************/
 
     function getConfigAtId(uint256 cycleId_) public view override returns (CycleConfig memory config_) {
         uint256 configId_ = latestConfigId;
@@ -330,7 +334,9 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         cycleId_ = config_.initialCycleId + (block.timestamp - config_.initialCycleTime) / config_.cycleDuration;
     }
 
-    function getRedeemableAmounts(uint256 lockedShares_, address owner_) public view override returns (uint256 redeemableShares_, uint256 resultingAssets_, bool partialLiquidity_) {
+    function getRedeemableAmounts(uint256 lockedShares_, address owner_)
+        public view override returns (uint256 redeemableShares_, uint256 resultingAssets_, bool partialLiquidity_)
+    {
         IPoolManagerLike poolManager_ = IPoolManagerLike(poolManager);
 
         // Calculate how much liquidity is available, and how much is required to allow redemption of shares.
@@ -363,9 +369,9 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         windowEnd_   = windowStart_ + config_.windowDuration;
     }
 
-    /******************************************************************************************************************************/
-    /*** Address View Functions                                                                                                 ***/
-    /******************************************************************************************************************************/
+    /**************************************************************************************************************************************/
+    /*** Address View Functions                                                                                                         ***/
+    /**************************************************************************************************************************************/
 
     function asset() public view override returns (address asset_) {
         asset_ = IPoolLike(pool).asset();
@@ -391,14 +397,16 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
         poolDelegate_ = IPoolManagerLike(poolManager).poolDelegate();
     }
 
-    function previewWithdraw(address owner_, uint256 assets_) external pure override returns (uint256 redeemableAssets_, uint256 resultingShares_) {
+    function previewWithdraw(address owner_, uint256 assets_)
+        external pure override returns (uint256 redeemableAssets_, uint256 resultingShares_)
+    {
         owner_; assets_; redeemableAssets_; resultingShares_;  // Silence compiler warnings
         return ( redeemableAssets_, resultingShares_ );  // NOTE: Withdrawal not implemented use redeem instead
     }
 
-    /******************************************************************************************************************************/
-    /*** Helper Functions                                                                                                       ***/
-    /******************************************************************************************************************************/
+    /**************************************************************************************************************************************/
+    /*** Helper Functions                                                                                                               ***/
+    /**************************************************************************************************************************************/
 
     function _emitProcess(address account_, uint256 sharesToRedeem_, uint256 assetsToWithdraw_) internal {
         if (sharesToRedeem_ == 0) {
