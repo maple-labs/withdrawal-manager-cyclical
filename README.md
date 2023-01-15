@@ -1,9 +1,9 @@
 # Withdrawal Manager
 
-![Foundry CI](https://github.com/maple-labs/withdrawal-manager-private/actions/workflows/forge.yml/badge.svg)
+![Foundry CI](https://github.com/maple-labs/withdrawal-manager/actions/workflows/forge.yml/badge.svg)
 [![GitBook - Documentation](https://img.shields.io/badge/GitBook-Documentation-orange?logo=gitbook&logoColor=white)](https://maplefinance.gitbook.io/maple/maple-for-developers/protocol-overview)
 [![Foundry][foundry-badge]][foundry]
-[![License: BUSL 1.1](https://img.shields.io/badge/License-BUSL%201.1-blue.svg)](https://github.com/maple-labs/withdrawal-manager-private/blob/main/LICENSE)
+[![License: BUSL 1.1](https://img.shields.io/badge/License-BUSL%201.1-blue.svg)](https://github.com/maple-labs/withdrawal-manager/blob/main/LICENSE)
 
 [foundry]: https://getfoundry.sh/
 [foundry-badge]: https://img.shields.io/badge/Built%20with-Foundry-FFDB1C.svg
@@ -31,8 +31,8 @@ Versions of dependencies can be checked with `git submodule status`.
 This project was built using [Foundry](https://book.getfoundry.sh/). Refer to installation instructions [here](https://github.com/foundry-rs/foundry#installation).
 
 ```sh
-git clone git@github.com:maple-labs/withdrawal-manager-private.git
-cd withdrawal-manager-private
+git clone git@github.com:maple-labs/withdrawal-manager.git
+cd withdrawal-manager
 forge install
 ```
 
