@@ -1,5 +1,5 @@
 name: withdrawal-manager
-version: 1.0.0-beta.0
+version: 1.0.0
 source: contracts
 packages:
   - path: contracts/WithdrawalManager.sol
@@ -8,6 +8,4 @@ packages:
     contractName: WithdrawalManagerFactory
   - path: contracts/WithdrawalManagerInitializer.sol
     contractName: WithdrawalManagerInitializer
-  - path: contracts/WithdrawalManagerStorage.sol
-    contractName: WithdrawalManagerStorage
 customDescription: Withdrawal Manager Artifacts and ABIs
