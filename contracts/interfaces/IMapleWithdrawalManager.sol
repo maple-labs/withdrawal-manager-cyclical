@@ -3,9 +3,9 @@ pragma solidity 0.8.7;
 
 import { IMapleProxied } from "../../modules/maple-proxy-factory/contracts/interfaces/IMapleProxied.sol";
 
-import { IWithdrawalManagerStorage } from "./IWithdrawalManagerStorage.sol";
+import { IMapleWithdrawalManagerStorage } from "./IMapleWithdrawalManagerStorage.sol";
 
-interface IWithdrawalManager is IMapleProxied, IWithdrawalManagerStorage {
+interface IMapleWithdrawalManager is IMapleProxied, IMapleWithdrawalManagerStorage {
 
     /**************************************************************************************************************************************/
     /*** State Changing Functions                                                                                                       ***/

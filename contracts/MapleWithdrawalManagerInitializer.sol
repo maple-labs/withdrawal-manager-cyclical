@@ -3,12 +3,12 @@ pragma solidity 0.8.7;
 
 import { MapleProxiedInternals } from "../modules/maple-proxy-factory/contracts/MapleProxiedInternals.sol";
 
-import { IPoolLike }                     from "./interfaces/Interfaces.sol";
-import { IWithdrawalManagerInitializer } from "./interfaces/IWithdrawalManagerInitializer.sol";
+import { IPoolLike }                          from "./interfaces/Interfaces.sol";
+import { IMapleWithdrawalManagerInitializer } from "./interfaces/IMapleWithdrawalManagerInitializer.sol";
 
-import { WithdrawalManagerStorage } from "./WithdrawalManagerStorage.sol";
+import { MapleWithdrawalManagerStorage } from "./MapleWithdrawalManagerStorage.sol";
 
-contract WithdrawalManagerInitializer is IWithdrawalManagerInitializer, WithdrawalManagerStorage, MapleProxiedInternals {
+contract MapleWithdrawalManagerInitializer is IMapleWithdrawalManagerInitializer, MapleWithdrawalManagerStorage, MapleProxiedInternals {
 
     fallback() external {
         ( address pool_, uint256 cycleDuration_, uint256 windowDuration_ ) = decodeArguments(msg.data);

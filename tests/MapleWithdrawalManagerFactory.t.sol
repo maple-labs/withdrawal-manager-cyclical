@@ -4,13 +4,13 @@ pragma solidity 0.8.7;
 import { Address, TestUtils } from "../modules/contract-test-utils/contracts/test.sol";
 import { MockERC20 }          from "../modules/erc20/contracts/test/mocks/MockERC20.sol";
 
-import { WithdrawalManager }            from "../contracts/WithdrawalManager.sol";
-import { WithdrawalManagerFactory }     from "../contracts/WithdrawalManagerFactory.sol";
-import { WithdrawalManagerInitializer } from "../contracts/WithdrawalManagerInitializer.sol";
+import { MapleWithdrawalManager }            from "../contracts/MapleWithdrawalManager.sol";
+import { MapleWithdrawalManagerFactory }     from "../contracts/MapleWithdrawalManagerFactory.sol";
+import { MapleWithdrawalManagerInitializer } from "../contracts/MapleWithdrawalManagerInitializer.sol";
 
 import { MockGlobals, MockPool } from "./mocks/Mocks.sol";
 
-contract WithdrawalManagerFactoryTests is TestUtils {
+contract MapleWithdrawalManagerFactoryTests is TestUtils {
 
     address internal governor;
     address internal poolDelegate;
@@ -22,12 +22,12 @@ contract WithdrawalManagerFactoryTests is TestUtils {
     MockGlobals internal globals;
     MockPool    internal pool;
 
-    WithdrawalManagerFactory internal factory;
+    MapleWithdrawalManagerFactory internal factory;
 
     function setUp() external {
         governor       = address(new Address());
-        implementation = address(new WithdrawalManager());
-        initializer    = address(new WithdrawalManagerInitializer());
+        implementation = address(new MapleWithdrawalManager());
+        initializer    = address(new MapleWithdrawalManagerInitializer());
         poolDelegate   = address(new Address());
 
         asset   = new MockERC20("Wrapped Ether", "WETH", 18);
@@ -35,7 +35,7 @@ contract WithdrawalManagerFactoryTests is TestUtils {
         pool    = new MockPool("Maple Pool", "MP-WETH", 18, address(asset), poolDelegate);
 
         vm.startPrank(governor);
-        factory = new WithdrawalManagerFactory(address(globals));
+        factory = new MapleWithdrawalManagerFactory(address(globals));
         factory.registerImplementation(1, implementation, initializer);
         factory.setDefaultVersion(1);
 
@@ -85,7 +85,7 @@ contract WithdrawalManagerFactoryTests is TestUtils {
     function test_createInstance_success() external {
         bytes memory calldata_ = abi.encode(address(pool), 1, 1);
 
-        WithdrawalManager withdrawalManager_ = WithdrawalManager(factory.createInstance(calldata_, "SALT"));
+        MapleWithdrawalManager withdrawalManager_ = MapleWithdrawalManager(factory.createInstance(calldata_, "SALT"));
 
         (
             uint64 initialCycleId_,

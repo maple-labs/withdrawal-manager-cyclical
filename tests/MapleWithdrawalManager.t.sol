@@ -4,13 +4,13 @@ pragma solidity 0.8.7;
 import { Address, TestUtils } from "../modules/contract-test-utils/contracts/test.sol";
 import { MockERC20 }          from "../modules/erc20/contracts/test/mocks/MockERC20.sol";
 
-import { WithdrawalManager }            from "../contracts/WithdrawalManager.sol";
-import { WithdrawalManagerFactory }     from "../contracts/WithdrawalManagerFactory.sol";
-import { WithdrawalManagerInitializer } from "../contracts/WithdrawalManagerInitializer.sol";
+import { MapleWithdrawalManager }            from "../contracts/MapleWithdrawalManager.sol";
+import { MapleWithdrawalManagerFactory }     from "../contracts/MapleWithdrawalManagerFactory.sol";
+import { MapleWithdrawalManagerInitializer } from "../contracts/MapleWithdrawalManagerInitializer.sol";
 
 import { MockGlobals, MockPool, MockPoolManager, MockWithdrawalManagerMigrator } from "./mocks/Mocks.sol";
 
-contract WithdrawalManagerTestBase is TestUtils {
+contract TestBase is TestUtils {
 
     address internal governor;
     address internal implementation;
@@ -26,14 +26,14 @@ contract WithdrawalManagerTestBase is TestUtils {
     MockPool        internal pool;
     MockPoolManager internal poolManager;
 
-    WithdrawalManager internal withdrawalManager;
+    MapleWithdrawalManager internal withdrawalManager;
 
-    WithdrawalManagerFactory internal factory;
+    MapleWithdrawalManagerFactory internal factory;
 
     function setUp() public virtual {
         governor       = address(new Address());
-        implementation = address(new WithdrawalManager());
-        initializer    = address(new WithdrawalManagerInitializer());
+        implementation = address(new MapleWithdrawalManager());
+        initializer    = address(new MapleWithdrawalManagerInitializer());
         lp             = address(new Address());
         poolDelegate   = address(new Address());
 
@@ -49,7 +49,7 @@ contract WithdrawalManagerTestBase is TestUtils {
 
         // Create factory and register implementation.
         vm.startPrank(governor);
-        factory = new WithdrawalManagerFactory(address(globals));
+        factory = new MapleWithdrawalManagerFactory(address(globals));
         factory.registerImplementation(1, implementation, initializer);
         factory.setDefaultVersion(1);
 
@@ -60,7 +60,7 @@ contract WithdrawalManagerTestBase is TestUtils {
         vm.warp(start);
 
         // Create the withdrawal manager instance.
-        withdrawalManager = WithdrawalManager(factory.createInstance({
+        withdrawalManager = MapleWithdrawalManager(factory.createInstance({
             arguments_: abi.encode(address(pool), 1 weeks, 2 days),
             salt_:      "SALT"
         }));
@@ -96,7 +96,7 @@ contract WithdrawalManagerTestBase is TestUtils {
 
 }
 
-contract MigrateTests is WithdrawalManagerTestBase {
+contract MigrateTests is TestBase {
 
     address internal migrator;
 
@@ -128,14 +128,14 @@ contract MigrateTests is WithdrawalManagerTestBase {
 
 }
 
-contract SetImplementationTests is WithdrawalManagerTestBase {
+contract SetImplementationTests is TestBase {
 
     address internal newImplementation;
 
     function setUp() public override {
         super.setUp();
 
-        newImplementation = address(new WithdrawalManager());
+        newImplementation = address(new MapleWithdrawalManager());
     }
 
     function test_setImplementation_notFactory() external {
@@ -154,7 +154,7 @@ contract SetImplementationTests is WithdrawalManagerTestBase {
 
 }
 
-contract UpgradeTests is WithdrawalManagerTestBase {
+contract UpgradeTests is TestBase {
 
     address internal migrator;
     address internal newImplementation;
@@ -163,7 +163,7 @@ contract UpgradeTests is WithdrawalManagerTestBase {
         super.setUp();
 
         migrator          = address(new MockWithdrawalManagerMigrator());
-        newImplementation = address(new WithdrawalManager());
+        newImplementation = address(new MapleWithdrawalManager());
 
         vm.startPrank(governor);
         factory.registerImplementation(2, newImplementation, initializer);
@@ -213,7 +213,7 @@ contract UpgradeTests is WithdrawalManagerTestBase {
 
 }
 
-contract SetExitConfigTests is WithdrawalManagerTestBase {
+contract SetExitConfigTests is TestBase {
 
     function test_setExitConfig_failWhenPaused() external {
         globals.__setProtocolPaused(true);
@@ -476,7 +476,7 @@ contract SetExitConfigTests is WithdrawalManagerTestBase {
 
 }
 
-contract AddSharesTests is WithdrawalManagerTestBase {
+contract AddSharesTests is TestBase {
 
     address internal pm;
 
@@ -647,7 +647,7 @@ contract AddSharesTests is WithdrawalManagerTestBase {
 
 }
 
-contract RemoveSharesTests is WithdrawalManagerTestBase {
+contract RemoveSharesTests is TestBase {
 
     address internal pm;
 
@@ -787,7 +787,7 @@ contract RemoveSharesTests is WithdrawalManagerTestBase {
 
 }
 
-contract ProcessExitTests is WithdrawalManagerTestBase {
+contract ProcessExitTests is TestBase {
 
     address internal pm;
 
@@ -960,7 +960,7 @@ contract ProcessExitTests is WithdrawalManagerTestBase {
 
 }
 
-contract LockedLiquidityTests is WithdrawalManagerTestBase {
+contract LockedLiquidityTests is TestBase {
 
     address internal pm;
 
@@ -1021,7 +1021,7 @@ contract LockedLiquidityTests is WithdrawalManagerTestBase {
 
 }
 
-contract ProcessExitWithMultipleUsers is WithdrawalManagerTestBase {
+contract ProcessExitWithMultipleUsers is TestBase {
 
     address internal lp2;
     address internal lp3;
@@ -1170,7 +1170,7 @@ contract ProcessExitWithMultipleUsers is WithdrawalManagerTestBase {
 
 }
 
-contract ViewFunctionTests is WithdrawalManagerTestBase {
+contract ViewFunctionTests is TestBase {
 
     function setUp() public override {
         super.setUp();

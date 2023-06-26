@@ -5,13 +5,21 @@ import { ERC20Helper }           from "../modules/erc20-helper/src/ERC20Helper.s
 import { IMapleProxyFactory }    from "../modules/maple-proxy-factory/contracts/interfaces/IMapleProxyFactory.sol";
 import { MapleProxiedInternals } from "../modules/maple-proxy-factory/contracts/MapleProxiedInternals.sol";
 
-import { IERC20Like, IMapleGlobalsLike, IPoolLike, IPoolManagerLike } from "./interfaces/Interfaces.sol";
+import { IERC20Like, IGlobalsLike, IPoolLike, IPoolManagerLike } from "./interfaces/Interfaces.sol";
 
-import { IWithdrawalManager } from "./interfaces/IWithdrawalManager.sol";
+import { IMapleWithdrawalManager } from "./interfaces/IMapleWithdrawalManager.sol";
 
-import { WithdrawalManagerStorage } from "./WithdrawalManagerStorage.sol";
+import { MapleWithdrawalManagerStorage } from "./MapleWithdrawalManagerStorage.sol";
 
 /*
+
+    ███╗   ███╗ █████╗ ██████╗ ██╗     ███████╗
+    ████╗ ████║██╔══██╗██╔══██╗██║     ██╔════╝
+    ██╔████╔██║███████║██████╔╝██║     █████╗
+    ██║╚██╔╝██║██╔══██║██╔═══╝ ██║     ██╔══╝
+    ██║ ╚═╝ ██║██║  ██║██║     ███████╗███████╗
+    ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝     ╚══════╝╚══════╝
+
 
     ██╗    ██╗██╗████████╗██╗  ██╗██████╗ ██████╗  █████╗ ██╗    ██╗ █████╗ ██╗
     ██║    ██║██║╚══██╔══╝██║  ██║██╔══██╗██╔══██╗██╔══██╗██║    ██║██╔══██╗██║
@@ -58,14 +66,14 @@ import { WithdrawalManagerStorage } from "./WithdrawalManagerStorage.sol";
 
 */
 
-contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, MapleProxiedInternals {
+contract MapleWithdrawalManager is IMapleWithdrawalManager, MapleWithdrawalManagerStorage, MapleProxiedInternals {
 
     // NOTE: The following functions already check for paused state in the pool, therefore no need to check here.
     // * addShares
     // * removeShares
     // * processExit
     modifier whenProtocolNotPaused() {
-        require(!IMapleGlobalsLike(globals()).protocolPaused(), "WM:PROTOCOL_PAUSED");
+        require(!IGlobalsLike(globals()).protocolPaused(), "WM:PROTOCOL_PAUSED");
         _;
     }
 
@@ -88,7 +96,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
 
         require(msg.sender == poolDelegate_ || msg.sender == governor(), "WM:U:NOT_AUTHORIZED");
 
-        IMapleGlobalsLike mapleGlobals_ = IMapleGlobalsLike(globals());
+        IGlobalsLike mapleGlobals_ = IGlobalsLike(globals());
 
         if (msg.sender == poolDelegate_) {
             require(mapleGlobals_.isValidScheduledCall(msg.sender, address(this), "WM:UPGRADE", msg.data), "WM:U:INVALID_SCHED_CALL");
@@ -386,7 +394,7 @@ contract WithdrawalManager is IWithdrawalManager, WithdrawalManagerStorage, Mapl
     }
 
     function governor() public view override returns (address governor_) {
-        governor_ = IMapleGlobalsLike(globals()).governor();
+        governor_ = IGlobalsLike(globals()).governor();
     }
 
     function implementation() external view override returns (address implementation_) {
