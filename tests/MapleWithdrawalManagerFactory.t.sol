@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.7;
 
-import { Address, TestUtils } from "../modules/contract-test-utils/contracts/test.sol";
-import { MockERC20 }          from "../modules/erc20/contracts/test/mocks/MockERC20.sol";
+import { Test }      from "../modules/forge-std/src/Test.sol";
+import { MockERC20 } from "../modules/erc20/contracts/test/mocks/MockERC20.sol";
 
 import { MapleWithdrawalManager }            from "../contracts/MapleWithdrawalManager.sol";
 import { MapleWithdrawalManagerFactory }     from "../contracts/MapleWithdrawalManagerFactory.sol";
@@ -10,7 +10,7 @@ import { MapleWithdrawalManagerInitializer } from "../contracts/MapleWithdrawalM
 
 import { MockGlobals, MockPool } from "./mocks/Mocks.sol";
 
-contract MapleWithdrawalManagerFactoryTests is TestUtils {
+contract MapleWithdrawalManagerFactoryTests is Test {
 
     address internal governor;
     address internal poolDelegate;
@@ -25,11 +25,12 @@ contract MapleWithdrawalManagerFactoryTests is TestUtils {
     MapleWithdrawalManagerFactory internal factory;
 
     function setUp() external {
-        governor       = address(new Address());
+        governor     = makeAddr("governor");
+        poolDelegate = makeAddr("poolDelegate");
+        
         implementation = address(new MapleWithdrawalManager());
         initializer    = address(new MapleWithdrawalManagerInitializer());
-        poolDelegate   = address(new Address());
-
+        
         asset   = new MockERC20("Wrapped Ether", "WETH", 18);
         globals = new MockGlobals(address(governor));
         pool    = new MockPool("Maple Pool", "MP-WETH", 18, address(asset), poolDelegate);

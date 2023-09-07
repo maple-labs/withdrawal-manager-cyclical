@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.7;
 
-import { Address, TestUtils } from "../modules/contract-test-utils/contracts/test.sol";
-import { MockERC20 }          from "../modules/erc20/contracts/test/mocks/MockERC20.sol";
+import { Test }      from "../modules/forge-std/src/Test.sol";
+import { MockERC20 } from "../modules/erc20/contracts/test/mocks/MockERC20.sol";
 
 import { MapleWithdrawalManager }            from "../contracts/MapleWithdrawalManager.sol";
 import { MapleWithdrawalManagerFactory }     from "../contracts/MapleWithdrawalManagerFactory.sol";
@@ -10,7 +10,7 @@ import { MapleWithdrawalManagerInitializer } from "../contracts/MapleWithdrawalM
 
 import { MockGlobals, MockPool, MockPoolManager, MockWithdrawalManagerMigrator } from "./mocks/Mocks.sol";
 
-contract TestBase is TestUtils {
+contract TestBase is Test {
 
     address internal governor;
     address internal implementation;
@@ -31,11 +31,12 @@ contract TestBase is TestUtils {
     MapleWithdrawalManagerFactory internal factory;
 
     function setUp() public virtual {
-        governor       = address(new Address());
+        governor     = makeAddr("governor");
+        lp           = makeAddr("lp");
+        poolDelegate = makeAddr("poolDelegate");
+
         implementation = address(new MapleWithdrawalManager());
         initializer    = address(new MapleWithdrawalManagerInitializer());
-        lp             = address(new Address());
-        poolDelegate   = address(new Address());
 
         start = 1641164400;
 
@@ -1029,8 +1030,8 @@ contract ProcessExitWithMultipleUsers is TestBase {
     function setUp() public override{
         super.setUp();
 
-        lp2 = address(new Address());
-        lp3 = address(new Address());
+        lp2 = makeAddr("lp2");
+        lp3 = makeAddr("lp3");
 
         pool.mint(address(poolManager), 800);
 
