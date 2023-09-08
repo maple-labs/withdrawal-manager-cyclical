@@ -4,6 +4,8 @@ pragma solidity 0.8.7;
 import { Test }      from "../modules/forge-std/src/Test.sol";
 import { MockERC20 } from "../modules/erc20/contracts/test/mocks/MockERC20.sol";
 
+import { IMapleWithdrawalManagerStorage } from "../contracts/interfaces/IMapleWithdrawalManagerStorage.sol";
+
 import { MapleWithdrawalManager }            from "../contracts/MapleWithdrawalManager.sol";
 import { MapleWithdrawalManagerFactory }     from "../contracts/MapleWithdrawalManagerFactory.sol";
 import { MapleWithdrawalManagerInitializer } from "../contracts/MapleWithdrawalManagerInitializer.sol";
@@ -20,6 +22,7 @@ contract TestBase is Test {
     address internal wm;
 
     uint256 internal start;
+    uint256 internal delay;
 
     MockERC20       internal asset;
     MockGlobals     internal globals;
@@ -39,6 +42,7 @@ contract TestBase is Test {
         initializer    = address(new MapleWithdrawalManagerInitializer());
 
         start = 1641164400;
+        delay = 3.5 days;
 
         // Create all mocks.
         asset       = new MockERC20("Wrapped Ether", "WETH", 18);
@@ -62,7 +66,7 @@ contract TestBase is Test {
 
         // Create the withdrawal manager instance.
         withdrawalManager = MapleWithdrawalManager(factory.createInstance({
-            arguments_: abi.encode(address(pool), 1 weeks, 2 days),
+            arguments_: abi.encode(address(pool), start + delay, 1 weeks, 2 days),
             salt_:      "SALT"
         }));
 
@@ -287,8 +291,8 @@ contract SetExitConfigTests is TestBase {
         assertEq(withdrawalManager.latestConfigId(), 1);
         assertConfig({
             configurationId:  1,
-            initialCycleId:   1     + 3,
-            initialCycleTime: start + 3 weeks,
+            initialCycleId:   1 + 3,
+            initialCycleTime: start + delay + 3 weeks,
             cycleDuration:    1 weeks,
             windowDuration:   1 days
         });
@@ -313,8 +317,8 @@ contract SetExitConfigTests is TestBase {
 
         assertConfig({
             configurationId:  1,
-            initialCycleId:   1     + 3,
-            initialCycleTime: start + (1 weeks * 3),
+            initialCycleId:   1 + 3,
+            initialCycleTime: start + delay + (1 weeks * 3),
             cycleDuration:    2 weeks,
             windowDuration:   2 days
         });
@@ -328,7 +332,7 @@ contract SetExitConfigTests is TestBase {
         });
 
         // Wait until a new cycle begins.
-        vm.warp(start + 1 weeks);
+        vm.warp(start + delay + 1 weeks);
         vm.prank(poolDelegate);
         withdrawalManager.setExitConfig(3 weeks, 3 days);
 
@@ -336,22 +340,22 @@ contract SetExitConfigTests is TestBase {
 
         assertConfig({
             configurationId:  1,
-            initialCycleId:   1     + 3,
-            initialCycleTime: start + (1 weeks * 3),
+            initialCycleId:   1 + 3,
+            initialCycleTime: start + delay + (1 weeks * 3),
             cycleDuration:    2 weeks,
             windowDuration:   2 days
         });
 
         assertConfig({
             configurationId:  2,
-            initialCycleId:   1     + 3             + 1,
-            initialCycleTime: start + (1 weeks * 3) + 2 weeks,  // 3 weeks for cycles 1-3 + 2 weeks for cycle 4
+            initialCycleId:   1 + 3 + 1,
+            initialCycleTime: start + delay + (1 weeks * 3) + 2 weeks,  // 3 weeks for cycles 1-3 + 2 weeks for cycle 4
             cycleDuration:    3 weeks,
             windowDuration:   3 days
         });
 
         // Update the configuration again within the same cycle in order to overwrite it.
-        vm.warp(start + 2 weeks - 1);
+        vm.warp(start + delay + 2 weeks - 1 seconds);
         vm.prank(poolDelegate);
         withdrawalManager.setExitConfig(3 weeks, 1 days);
 
@@ -359,16 +363,16 @@ contract SetExitConfigTests is TestBase {
 
         assertConfig({
             configurationId:  1,
-            initialCycleId:   1     + 3,
-            initialCycleTime: start + (1 weeks * 3),
+            initialCycleId:   1 + 3,
+            initialCycleTime: start + delay + (1 weeks * 3),
             cycleDuration:    2 weeks,
             windowDuration:   2 days
         });
 
         assertConfig({
             configurationId:  2,
-            initialCycleId:   1     + 3             + 1,
-            initialCycleTime: start + (1 weeks * 3) + 2 weeks,
+            initialCycleId:   1 + 3 + 1,
+            initialCycleTime: start + delay + (1 weeks * 3) + 2 weeks,
             cycleDuration:    3 weeks,
             windowDuration:   1 days
         });
@@ -386,7 +390,7 @@ contract SetExitConfigTests is TestBase {
         });
 
         // 1 full cycles goes by - Current cycle is 2.
-        vm.warp(start + 1 weeks + 1);
+        vm.warp(start + delay + 1 weeks + 1 seconds);
 
         // Add a new configuration.
         vm.prank(poolDelegate);
@@ -396,8 +400,8 @@ contract SetExitConfigTests is TestBase {
 
         assertConfig({
             configurationId:  1,
-            initialCycleId:   2     + 3,
-            initialCycleTime: start + 1 weeks + (1 weeks * 3),  // Starting at cycle 2 + 3 cycles
+            initialCycleId:   2 + 3,
+            initialCycleTime: start + delay + 1 weeks + (1 weeks * 3),  // Starting at cycle 2 + 3 cycles
             cycleDuration:    2 weeks,
             windowDuration:   5 days
         });
@@ -411,14 +415,14 @@ contract SetExitConfigTests is TestBase {
         // Still schedule to start the same time as before, but with different configurations, meaning the config was updated.
         assertConfig({
             configurationId:  1,
-            initialCycleId:   2     + 3,
-            initialCycleTime: start + 1 weeks + (1 weeks * 3),  // Starting at cycle 2 + 3 cycles
+            initialCycleId:   2 + 3,
+            initialCycleTime: start + delay + 1 weeks + (1 weeks * 3),  // Starting at cycle 2 + 3 cycles
             cycleDuration:    4 weeks,
             windowDuration:   1 days
         });
 
         // Another cycle goes by - current cycle is 3.
-        vm.warp(start + 2 weeks);
+        vm.warp(start + delay + 2 weeks);
 
         // Add a new configuration.
         vm.prank(poolDelegate);
@@ -429,22 +433,22 @@ contract SetExitConfigTests is TestBase {
         // The previous config is still schedule to start at the correct time.
         assertConfig({
             configurationId:  1,
-            initialCycleId:   2     + 3,
-            initialCycleTime: start + 1 weeks + (1 weeks * 3),  // Starting at cycle 2 + 3 cycles
+            initialCycleId:   2 + 3,
+            initialCycleTime: start + delay + 1 weeks + (1 weeks * 3),  // Starting at cycle 2 + 3 cycles
             cycleDuration:    4 weeks,
             windowDuration:   1 days
         });
 
         assertConfig({
             configurationId:  2,
-            initialCycleId:   3     + 3,
-            initialCycleTime: start + 1 weeks + (1 weeks * 3) + 4 weeks,  // Starting at cycle 3 + 3 cycles (2 at config 0 one at config 1)
+            initialCycleId:   3 + 3,
+            initialCycleTime: start + delay + 1 weeks + (1 weeks * 3) + 4 weeks,  // Starting at cycle 3 + 3 cycles (2 at config 0 one at config 1)
             cycleDuration:    3 weeks,
             windowDuration:   1 days
         });
 
         // Warp another cycle - Making the current one 4
-        vm.warp(start + 3 weeks);
+        vm.warp(start + delay + 3 weeks);
 
         // Add yet another config
         vm.prank(poolDelegate);
@@ -454,8 +458,8 @@ contract SetExitConfigTests is TestBase {
 
         assertConfig({
             configurationId:  3,
-            initialCycleId:   4     + 3,
-            initialCycleTime: start + 1 weeks + (1 weeks * 3) + 4 weeks + 3 weeks,  // Starting at cycle 4 + 3 cycles (1 at config 0, 1 at config 1, one at config 2)
+            initialCycleId:   4 + 3,
+            initialCycleTime: start + delay + 1 weeks + (1 weeks * 3) + 4 weeks + 3 weeks,  // Starting at cycle 4 + 3 cycles (1 at config 0, 1 at config 1, one at config 2)
             cycleDuration:    4 weeks,
             windowDuration:   4 days
         });
@@ -468,8 +472,8 @@ contract SetExitConfigTests is TestBase {
 
         assertConfig({
             configurationId:  3,
-            initialCycleId:   4     + 3,
-            initialCycleTime: start + 1 weeks + (1 weeks * 3) + 4 weeks + 3 weeks,  // Starting at cycle 4 + 3 cycles (1 at config 0, 1 at config 1, one at config 2)
+            initialCycleId:   4 + 3,
+            initialCycleTime: start + delay + 1 weeks + (1 weeks * 3) + 4 weeks + 3 weeks,  // Starting at cycle 4 + 3 cycles (1 at config 0, 1 at config 1, one at config 2)
             cycleDuration:    2 weeks,
             windowDuration:   2 days
         });
@@ -502,7 +506,7 @@ contract AddSharesTests is TestBase {
         vm.prank(pm);
         withdrawalManager.addShares(1, lp);
 
-        vm.warp(start + 2 weeks - 1 seconds);
+        vm.warp(start + delay + 2 weeks - 1 seconds);
         vm.prank(pm);
         vm.expectRevert("WM:AS:WITHDRAWAL_PENDING");
         withdrawalManager.addShares(1, lp);
@@ -562,7 +566,7 @@ contract AddSharesTests is TestBase {
         assertEq(pool.balanceOf(wm),     1);
         assertEq(pool.allowance(pm, wm), 1);
 
-        vm.warp(start + 2 weeks);
+        vm.warp(start + delay + 2 weeks);
         vm.prank(pm);
         withdrawalManager.addShares(0, lp);
 
@@ -597,7 +601,7 @@ contract AddSharesTests is TestBase {
         assertEq(pool.balanceOf(wm),     1);
         assertEq(pool.allowance(pm, wm), 1);
 
-        vm.warp(start + 2 weeks);
+        vm.warp(start + delay + 2 weeks);
         vm.prank(pm);
         withdrawalManager.addShares(1, lp);
 
@@ -632,7 +636,7 @@ contract AddSharesTests is TestBase {
         assertEq(pool.balanceOf(wm),     1);
         assertEq(pool.allowance(pm, wm), 1);
 
-        vm.warp(start + 3 weeks);
+        vm.warp(start + delay + 3 weeks);
         vm.prank(pm);
         withdrawalManager.addShares(0, lp);
 
@@ -673,7 +677,7 @@ contract RemoveSharesTests is TestBase {
         vm.prank(pm);
         withdrawalManager.addShares(1, lp);
 
-        vm.warp(start + 2 weeks - 1 seconds);
+        vm.warp(start + delay + 2 weeks - 1 seconds);
         vm.prank(pm);
         vm.expectRevert("WM:RS:WITHDRAWAL_PENDING");
         withdrawalManager.removeShares(1, lp);
@@ -683,7 +687,7 @@ contract RemoveSharesTests is TestBase {
         vm.prank(pm);
         withdrawalManager.addShares(1, lp);
 
-        vm.warp(start + 2 weeks);
+        vm.warp(start + delay + 2 weeks);
         vm.prank(pm);
         vm.expectRevert("WM:RS:SHARES_OOB");
         withdrawalManager.removeShares(0, lp);
@@ -693,7 +697,7 @@ contract RemoveSharesTests is TestBase {
         vm.prank(pm);
         withdrawalManager.addShares(1, lp);
 
-        vm.warp(start + 2 weeks);
+        vm.warp(start + delay + 2 weeks);
         vm.prank(pm);
         vm.expectRevert("WM:RS:SHARES_OOB");
         withdrawalManager.removeShares(2, lp);
@@ -705,7 +709,7 @@ contract RemoveSharesTests is TestBase {
 
         pool.burn(address(withdrawalManager), 1);
 
-        vm.warp(start + 2 weeks);
+        vm.warp(start + delay + 2 weeks);
         vm.prank(pm);
         vm.expectRevert("WM:RS:TRANSFER_FAIL");
         withdrawalManager.removeShares(1, lp);
@@ -723,7 +727,7 @@ contract RemoveSharesTests is TestBase {
         assertEq(pool.balanceOf(wm), 2);
         assertEq(pool.balanceOf(lp), 0);
 
-        vm.warp(start + 2 weeks);
+        vm.warp(start + delay + 2 weeks);
         vm.prank(pm);
         withdrawalManager.removeShares(1, lp);
 
@@ -748,7 +752,7 @@ contract RemoveSharesTests is TestBase {
         assertEq(pool.balanceOf(wm), 2);
         assertEq(pool.balanceOf(lp), 0);
 
-        vm.warp(start + 2 weeks);
+        vm.warp(start + delay + 2 weeks);
         vm.prank(pm);
         withdrawalManager.removeShares(2, lp);
 
@@ -773,7 +777,7 @@ contract RemoveSharesTests is TestBase {
         assertEq(pool.balanceOf(wm), 2);
         assertEq(pool.balanceOf(lp), 0);
 
-        vm.warp(start + 3 weeks);
+        vm.warp(start + delay + 3 weeks);
         vm.prank(pm);
         withdrawalManager.removeShares(1, lp);
 
@@ -833,7 +837,7 @@ contract ProcessExitTests is TestBase {
         vm.prank(pm);
         withdrawalManager.addShares(1, lp);
 
-        vm.warp(start + 2 weeks - 1);
+        vm.warp(start + delay + 2 weeks - 1);
         vm.prank(pm);
         vm.expectRevert("WM:PE:NOT_IN_WINDOW");
         withdrawalManager.processExit(1, lp);
@@ -843,7 +847,7 @@ contract ProcessExitTests is TestBase {
         vm.prank(pm);
         withdrawalManager.addShares(1, lp);
 
-        vm.warp(start + 2 weeks + 2 days);
+        vm.warp(start + delay + 2 weeks + 2 days);
 
         vm.prank(pm);
         vm.expectRevert("WM:PE:NOT_IN_WINDOW");
@@ -859,7 +863,7 @@ contract ProcessExitTests is TestBase {
 
         pool.burn(address(withdrawalManager), 1);
 
-        vm.warp(start + 2 weeks);
+        vm.warp(start + delay + 2 weeks);
         vm.prank(pm);
         vm.expectRevert("WM:PE:TRANSFER_FAIL");
         withdrawalManager.processExit(1, lp);
@@ -879,7 +883,7 @@ contract ProcessExitTests is TestBase {
         assertEq(pool.balanceOf(wm), 1);
         assertEq(pool.balanceOf(lp), 0);
 
-        vm.warp(start + 2 weeks);
+        vm.warp(start + delay + 2 weeks);
         vm.prank(pm);
 
         ( uint256 redeemableShares, uint256 resultingAssets ) = withdrawalManager.processExit(1, lp);
@@ -910,7 +914,7 @@ contract ProcessExitTests is TestBase {
         assertEq(pool.balanceOf(wm), 2);
         assertEq(pool.balanceOf(lp), 0);
 
-        vm.warp(start + 2 weeks);
+        vm.warp(start + delay + 2 weeks);
         vm.prank(pm);
 
         // Only can redeem 1 share of 2 at 2:1
@@ -942,7 +946,7 @@ contract ProcessExitTests is TestBase {
         assertEq(pool.balanceOf(wm), 1);
         assertEq(pool.balanceOf(lp), 0);
 
-        vm.warp(start + 2 weeks);
+        vm.warp(start + delay + 2 weeks);
         vm.prank(pm);
 
         ( uint256 redeemableShares, uint256 resultingAssets ) = withdrawalManager.processExit(1, lp);
@@ -980,25 +984,25 @@ contract LockedLiquidityTests is TestBase {
     }
 
     function test_lockedLiquidity_beforeWindow() external {
-        vm.warp(start + 2 weeks - 1);
+        vm.warp(start + delay + 2 weeks - 1);
         assertEq(withdrawalManager.lockedLiquidity(), 0);
     }
 
     function test_lockedLiquidity_afterWindow() external {
-        vm.warp(start + 2 weeks + 2 days);
+        vm.warp(start + delay + 2 weeks + 2 days);
         assertEq(withdrawalManager.lockedLiquidity(), 0);
     }
 
     function test_lockedLiquidity_duringWindow() external {
-        vm.warp(start + 2 weeks);
+        vm.warp(start + delay + 2 weeks);
         assertEq(withdrawalManager.lockedLiquidity(), 1);
 
-        vm.warp(start + 2 weeks + 2 days - 1);
+        vm.warp(start + delay + 2 weeks + 2 days - 1);
         assertEq(withdrawalManager.lockedLiquidity(), 1);
     }
 
     function test_lockedLiquidity_duringWindowWithdrawal() external {
-        vm.warp(start + 2 weeks);
+        vm.warp(start + delay + 2 weeks);
         assertEq(withdrawalManager.lockedLiquidity(), 1);
 
         vm.prank(pm);
@@ -1011,7 +1015,7 @@ contract LockedLiquidityTests is TestBase {
         poolManager.__setTotalAssets(2);
         poolManager.__setUnrealizedLosses(1);
 
-        vm.warp(start + 2 weeks);
+        vm.warp(start + delay + 2 weeks);
         assertEq(withdrawalManager.lockedLiquidity(), 1);
 
         vm.prank(pm);
@@ -1020,6 +1024,81 @@ contract LockedLiquidityTests is TestBase {
         assertEq(withdrawalManager.lockedLiquidity(), 0);
     }
 
+}
+
+contract GetCurrentConfigTests is TestBase {
+
+    function test_getCurrentConfig_beforeInitialCycle() external {
+        vm.warp(start);
+        IMapleWithdrawalManagerStorage.CycleConfig memory config = withdrawalManager.getCurrentConfig();
+
+        assertEq(config.initialCycleId,   1);
+        assertEq(config.initialCycleTime, start + delay);
+        assertEq(config.cycleDuration,    1 weeks);
+        assertEq(config.windowDuration,   2 days);
+    }
+
+    function test_getCurrentConfig_onInitialCycleStart() external {
+        vm.warp(start + delay);
+        IMapleWithdrawalManagerStorage.CycleConfig memory config = withdrawalManager.getCurrentConfig();
+
+        assertEq(config.initialCycleId,   1);
+        assertEq(config.initialCycleTime, start + delay);
+        assertEq(config.cycleDuration,    1 weeks);
+        assertEq(config.windowDuration,   2 days);
+    }
+
+    function test_getCurrentConfig_duringInitialCycle() external {
+        vm.warp(start + delay + 1 days);
+        IMapleWithdrawalManagerStorage.CycleConfig memory config = withdrawalManager.getCurrentConfig();
+
+        assertEq(config.initialCycleId,   1);
+        assertEq(config.initialCycleTime, start + delay);
+        assertEq(config.cycleDuration,    1 weeks);
+        assertEq(config.windowDuration,   2 days);
+    }
+
+    function test_getCurrentConfig_afterInitialCycle() external {
+        vm.warp(start + delay + 10 days);
+        IMapleWithdrawalManagerStorage.CycleConfig memory config = withdrawalManager.getCurrentConfig();
+
+        assertEq(config.initialCycleId,   1);
+        assertEq(config.initialCycleTime, start + delay);
+        assertEq(config.cycleDuration,    1 weeks);
+        assertEq(config.windowDuration,   2 days);
+    }
+
+}
+
+contract GetCurrentCycleIdTests is TestBase {
+
+    function test_getCurrentCycleId_beforeInitialCycle() external {
+        vm.warp(start);
+        uint256 cycleId = withdrawalManager.getCurrentCycleId();
+
+        assertEq(cycleId, 1);
+    }
+
+    function test_getCurrentCycleId_onInitialCycleStart() external {
+        vm.warp(start + delay);
+        uint256 cycleId = withdrawalManager.getCurrentCycleId();
+
+        assertEq(cycleId, 1);
+    }
+
+    function test_getCurrentCycleId_duringInitialCycle() external {
+        vm.warp(start + delay + 1 days);
+        uint256 cycleId = withdrawalManager.getCurrentCycleId();
+
+        assertEq(cycleId, 1);
+    }
+
+    function test_getCurrentCycleId_afterInitialCycle() external {
+        vm.warp(start + delay + 10 days);
+        uint256 cycleId = withdrawalManager.getCurrentCycleId();
+
+        assertEq(cycleId, 2);
+    }
 }
 
 contract ProcessExitWithMultipleUsers is TestBase {
@@ -1063,7 +1142,7 @@ contract ProcessExitWithMultipleUsers is TestBase {
         assertEq(pool.balanceOf(lp2), 0);
         assertEq(pool.balanceOf(lp3), 0);
 
-        vm.warp(start + 2 weeks);
+        vm.warp(start + delay + 2 weeks);
 
         // Process all exits
         vm.startPrank(address(poolManager));
@@ -1134,7 +1213,7 @@ contract ProcessExitWithMultipleUsers is TestBase {
         assertEq(pool.balanceOf(lp),  0);
         assertEq(pool.balanceOf(lp2), 0);
 
-        vm.warp(start + 2 weeks);
+        vm.warp(start + delay + 2 weeks);
 
         // Process all exits
         vm.startPrank(address(poolManager));

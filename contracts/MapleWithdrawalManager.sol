@@ -329,17 +329,22 @@ contract MapleWithdrawalManager is IMapleWithdrawalManager, MapleWithdrawalManag
     function getCurrentConfig() public view override returns (CycleConfig memory config_) {
         uint256 configId_ = latestConfigId;
 
-        while (block.timestamp < cycleConfigs[configId_].initialCycleTime) {
+        while (configId_ != 0 && block.timestamp < cycleConfigs[configId_].initialCycleTime) {
             --configId_;
         }
 
         config_ = cycleConfigs[configId_];
     }
 
+    // NOTE: If the first cycle has not been reached yet it will still be returned as the current one.
     function getCurrentCycleId() public view override returns (uint256 cycleId_) {
         CycleConfig memory config_ = getCurrentConfig();
 
-        cycleId_ = config_.initialCycleId + (block.timestamp - config_.initialCycleTime) / config_.cycleDuration;
+        cycleId_ = config_.initialCycleId;
+
+        if (block.timestamp > config_.initialCycleTime) {
+            cycleId_ += (block.timestamp - config_.initialCycleTime) / config_.cycleDuration;
+        }
     }
 
     function getRedeemableAmounts(uint256 lockedShares_, address owner_)

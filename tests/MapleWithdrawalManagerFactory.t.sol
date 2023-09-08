@@ -45,7 +45,7 @@ contract MapleWithdrawalManagerFactoryTests is Test {
     }
 
     function test_createInstance_notPoolDeployer() external {
-        bytes memory calldata_ = abi.encode(address(pool), 1, 1);
+        bytes memory calldata_ = abi.encode(address(pool), block.timestamp, 1, 1);
 
         MockGlobals(globals).setValidPoolDeployer(address(this), false);
         vm.expectRevert("WMF:CI:NOT_DEPLOYER");
@@ -56,35 +56,42 @@ contract MapleWithdrawalManagerFactoryTests is Test {
     }
 
     function test_createInstance_zeroPool() external {
-        bytes memory calldata_ = abi.encode(address(0), 1, 1);
+        bytes memory calldata_ = abi.encode(address(0), block.timestamp, 1, 1);
+
+        vm.expectRevert("MPF:CI:FAILED");
+        factory.createInstance(calldata_, "SALT");
+    }
+
+    function test_createInstance_invalidStart() external {
+        bytes memory calldata_ = abi.encode(address(0), block.timestamp - 1 seconds, 1, 1);
 
         vm.expectRevert("MPF:CI:FAILED");
         factory.createInstance(calldata_, "SALT");
     }
 
     function test_createInstance_zeroWindow() external {
-        bytes memory calldata_ = abi.encode(address(pool), 1, 0);
+        bytes memory calldata_ = abi.encode(address(pool), block.timestamp, 1, 0);
 
         vm.expectRevert("MPF:CI:FAILED");
         factory.createInstance(calldata_, "SALT");
     }
 
     function test_createInstance_windowOutOfBounds() external {
-        bytes memory calldata_ = abi.encode(address(pool), 1, 2);
+        bytes memory calldata_ = abi.encode(address(pool), block.timestamp, 1, 2);
 
         vm.expectRevert("MPF:CI:FAILED");
         factory.createInstance(calldata_, "SALT");
     }
 
     function testFail_createInstance_collision() external {
-        bytes memory calldata_ = abi.encode(address(pool), 1, 1);
+        bytes memory calldata_ = abi.encode(address(pool), block.timestamp, 1, 1);
 
         factory.createInstance(calldata_, "SALT");
         factory.createInstance(calldata_, "SALT");
     }
 
     function test_createInstance_success() external {
-        bytes memory calldata_ = abi.encode(address(pool), 1, 1);
+        bytes memory calldata_ = abi.encode(address(pool), block.timestamp + 1 weeks, 7 days, 2 days);
 
         MapleWithdrawalManager withdrawalManager_ = MapleWithdrawalManager(factory.createInstance(calldata_, "SALT"));
 
@@ -99,9 +106,9 @@ contract MapleWithdrawalManagerFactoryTests is Test {
         assertEq(withdrawalManager_.latestConfigId(), 0);
 
         assertEq(initialCycleId_,   1);
-        assertEq(initialCycleTime_, block.timestamp);
-        assertEq(cycleDuration_,    1);
-        assertEq(windowDuration_,   1);
+        assertEq(initialCycleTime_, block.timestamp + 1 weeks);
+        assertEq(cycleDuration_,    7 days);
+        assertEq(windowDuration_,   2 days);
     }
 
 }
