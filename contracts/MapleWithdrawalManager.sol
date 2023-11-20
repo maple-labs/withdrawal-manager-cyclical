@@ -77,6 +77,19 @@ contract MapleWithdrawalManager is IMapleWithdrawalManager, MapleWithdrawalManag
         _;
     }
 
+    modifier onlyPoolDelegateOrProtocolAdmins {
+        address globals_ = globals();
+
+        require(
+            msg.sender == IPoolManagerLike(poolManager).poolDelegate() ||
+            msg.sender == IGlobalsLike(globals_).governor() ||
+            msg.sender == IGlobalsLike(globals_).operationalAdmin(),
+            "WM:NOT_PD_OR_GOV_OR_OA"
+        );
+
+        _;
+    }
+
     /**************************************************************************************************************************************/
     /*** Proxy Functions                                                                                                                ***/
     /**************************************************************************************************************************************/
@@ -111,8 +124,12 @@ contract MapleWithdrawalManager is IMapleWithdrawalManager, MapleWithdrawalManag
     /*** Administrative Functions                                                                                                       ***/
     /**************************************************************************************************************************************/
 
-    function setExitConfig(uint256 cycleDuration_, uint256 windowDuration_) external override whenProtocolNotPaused {
-        require(msg.sender == poolDelegate(),      "WM:SEC:NOT_AUTHORIZED");
+    function setExitConfig(
+        uint256 cycleDuration_,
+        uint256 windowDuration_
+    )
+        external override whenProtocolNotPaused onlyPoolDelegateOrProtocolAdmins
+    {
         require(windowDuration_ != 0,              "WM:SEC:ZERO_WINDOW");
         require(windowDuration_ <= cycleDuration_, "WM:SEC:WINDOW_OOB");
 

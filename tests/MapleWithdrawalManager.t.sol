@@ -18,6 +18,7 @@ contract TestBase is Test {
     address internal implementation;
     address internal initializer;
     address internal lp;
+    address internal operationalAdmin;
     address internal poolDelegate;
     address internal wm;
 
@@ -34,9 +35,10 @@ contract TestBase is Test {
     MapleWithdrawalManagerFactory internal factory;
 
     function setUp() public virtual {
-        governor     = makeAddr("governor");
-        lp           = makeAddr("lp");
-        poolDelegate = makeAddr("poolDelegate");
+        governor         = makeAddr("governor");
+        lp               = makeAddr("lp");
+        operationalAdmin = makeAddr("operationalAdmin");
+        poolDelegate     = makeAddr("poolDelegate");
 
         implementation = address(new MapleWithdrawalManager());
         initializer    = address(new MapleWithdrawalManagerInitializer());
@@ -51,6 +53,7 @@ contract TestBase is Test {
         poolManager = new MockPoolManager(address(pool), poolDelegate, address(globals));
 
         pool.__setPoolManager(address(poolManager));
+        globals.__setOperationalAdmin(operationalAdmin);
 
         // Create factory and register implementation.
         vm.startPrank(governor);
@@ -233,21 +236,8 @@ contract SetExitConfigTests is TestBase {
         withdrawalManager.setExitConfig(1, 1);
     }
 
-    function test_setExitConfig_governor() external {
-        // Governor should not be allowed.
-        vm.prank(governor);
-        vm.expectRevert("WM:SEC:NOT_AUTHORIZED");
-        withdrawalManager.setExitConfig(1, 1);
-
-        vm.prank(poolDelegate);
-        withdrawalManager.setExitConfig(1, 1);
-    }
-
-    function test_setExitConfig_notPoolDelegate() external {
-        vm.expectRevert("WM:SEC:NOT_AUTHORIZED");
-        withdrawalManager.setExitConfig(1, 1);
-
-        vm.prank(poolDelegate);
+    function test_setExitConfig_notAuthorized() external {
+        vm.expectRevert("WM:NOT_PD_OR_GOV_OR_OA");
         withdrawalManager.setExitConfig(1, 1);
     }
 
@@ -269,6 +259,21 @@ contract SetExitConfigTests is TestBase {
         withdrawalManager.setExitConfig(uint256(type(uint64).max) + 1, 2 days);
 
         withdrawalManager.setExitConfig(type(uint64).max, 2 days);
+    }
+
+    function test_setExitConfig_poolDelegate() external {
+        vm.prank(poolDelegate);
+        withdrawalManager.setExitConfig(1, 1);
+    }
+
+    function test_setExitConfig_governor() external {
+        vm.prank(governor);
+        withdrawalManager.setExitConfig(1, 1);
+    }
+
+    function test_setExitConfig_operationalAdmin() external {
+        vm.prank(operationalAdmin);
+        withdrawalManager.setExitConfig(1, 1);
     }
 
     // NOTE: test_setExitConfig_windowDurationCastOob is not reachable because

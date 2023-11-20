@@ -20,6 +20,8 @@ interface IGlobalsLike {
         bytes calldata callData_
     ) external view returns (bool isValid_);
 
+    function operationalAdmin() external view returns (address operationalAdmin_);
+
     function protocolPaused() external view returns (bool protocolPaused_);
 
     function unscheduleCall(address caller_, bytes32 functionId_, bytes calldata callData_) external;
