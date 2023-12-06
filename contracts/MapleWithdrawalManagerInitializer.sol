@@ -49,19 +49,24 @@ contract MapleWithdrawalManagerInitializer is IMapleWithdrawalManagerInitializer
 
         cycleConfigs[0] = CycleConfig({
             initialCycleId:   1,
-            initialCycleTime: uint64(startTime_),
-            cycleDuration:    uint64(cycleDuration_),
-            windowDuration:   uint64(windowDuration_)
+            initialCycleTime: _uint64(startTime_),
+            cycleDuration:    _uint64(cycleDuration_),
+            windowDuration:   _uint64(windowDuration_)
         });
 
         emit Initialized(pool_, cycleDuration_, windowDuration_);
         emit ConfigurationUpdated({
             configId_:         0,
             initialCycleId_:   1,
-            initialCycleTime_: uint64(startTime_),
-            cycleDuration_:    uint64(cycleDuration_),
-            windowDuration_:   uint64(windowDuration_)
+            initialCycleTime_: _uint64(startTime_),
+            cycleDuration_:    _uint64(cycleDuration_),
+            windowDuration_:   _uint64(windowDuration_)
         });
+    }
+
+    function _uint64(uint256 input_) internal pure returns (uint64 output_) {
+        require(input_ <= type(uint64).max, "WMI:UINT64");
+        output_ = uint64(input_);
     }
 
 }

@@ -27,10 +27,10 @@ contract MapleWithdrawalManagerFactoryTests is Test {
     function setUp() external {
         governor     = makeAddr("governor");
         poolDelegate = makeAddr("poolDelegate");
-        
+
         implementation = address(new MapleWithdrawalManager());
         initializer    = address(new MapleWithdrawalManagerInitializer());
-        
+
         asset   = new MockERC20("Wrapped Ether", "WETH", 18);
         globals = new MockGlobals(address(governor));
         pool    = new MockPool("Maple Pool", "MP-WETH", 18, address(asset), poolDelegate);
@@ -87,6 +87,23 @@ contract MapleWithdrawalManagerFactoryTests is Test {
         bytes memory calldata_ = abi.encode(address(pool), block.timestamp, 1, 1);
 
         factory.createInstance(calldata_, "SALT");
+        factory.createInstance(calldata_, "SALT");
+    }
+
+    function test_createInstance_safeCastOutOfBounds() external {
+        bytes memory calldata_ = abi.encode(address(pool), type(uint128).max, 7 days, 2 days);
+
+        vm.expectRevert("MPF:CI:FAILED");
+        factory.createInstance(calldata_, "SALT");
+
+        calldata_ = abi.encode(address(pool), block.timestamp + 1 weeks, type(uint128).max, 2 days);
+
+        vm.expectRevert("MPF:CI:FAILED");
+        factory.createInstance(calldata_, "SALT");
+
+        calldata_ = abi.encode(address(pool), block.timestamp + 1 weeks, 7 days, type(uint128).max);
+
+        vm.expectRevert("MPF:CI:FAILED");
         factory.createInstance(calldata_, "SALT");
     }
 
