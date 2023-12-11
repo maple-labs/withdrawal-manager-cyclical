@@ -20,6 +20,7 @@ contract TestBase is Test {
     address internal lp;
     address internal operationalAdmin;
     address internal poolDelegate;
+    address internal securityAdmin;
     address internal wm;
 
     uint256 internal start;
@@ -39,6 +40,7 @@ contract TestBase is Test {
         lp               = makeAddr("lp");
         operationalAdmin = makeAddr("operationalAdmin");
         poolDelegate     = makeAddr("poolDelegate");
+        securityAdmin    = makeAddr("securityAdmin");
 
         implementation = address(new MapleWithdrawalManager());
         initializer    = address(new MapleWithdrawalManagerInitializer());
@@ -54,6 +56,7 @@ contract TestBase is Test {
 
         pool.__setPoolManager(address(poolManager));
         globals.__setOperationalAdmin(operationalAdmin);
+        globals.__setSecurityAdmin(securityAdmin);
 
         // Create factory and register implementation.
         vm.startPrank(governor);
@@ -179,11 +182,11 @@ contract UpgradeTests is TestBase {
         vm.stopPrank();
     }
 
-    function test_upgrade_notGovernor() external {
+    function test_upgrade_notSecurityAdmin() external {
         vm.expectRevert("WM:U:NOT_AUTHORIZED");
         withdrawalManager.upgrade(2, "");
 
-        vm.prank(governor);
+        vm.prank(securityAdmin);
         withdrawalManager.upgrade(2, abi.encode(address(0)));
     }
 

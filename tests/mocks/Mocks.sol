@@ -7,6 +7,7 @@ contract MockGlobals {
 
     address public governor;
     address public operationalAdmin;
+    address public securityAdmin;
 
     bool internal _isValidScheduledCall;
 
@@ -38,6 +39,10 @@ contract MockGlobals {
 
     function __setProtocolPaused(bool protocolPaused_) external {
         protocolPaused = protocolPaused_;
+    }
+
+    function __setSecurityAdmin(address securityAdmin_) external {
+        securityAdmin = securityAdmin_;
     }
 
 }

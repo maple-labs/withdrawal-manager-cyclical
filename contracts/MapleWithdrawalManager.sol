@@ -107,9 +107,9 @@ contract MapleWithdrawalManager is IMapleWithdrawalManager, MapleWithdrawalManag
     function upgrade(uint256 version_, bytes calldata arguments_) external override {
         address poolDelegate_ = poolDelegate();
 
-        require(msg.sender == poolDelegate_ || msg.sender == governor(), "WM:U:NOT_AUTHORIZED");
-
         IGlobalsLike mapleGlobals_ = IGlobalsLike(globals());
+
+        require(msg.sender == poolDelegate_ || msg.sender == mapleGlobals_.securityAdmin(), "WM:U:NOT_AUTHORIZED");
 
         if (msg.sender == poolDelegate_) {
             require(mapleGlobals_.isValidScheduledCall(msg.sender, address(this), "WM:UPGRADE", msg.data), "WM:U:INVALID_SCHED_CALL");
