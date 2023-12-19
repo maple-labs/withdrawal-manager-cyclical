@@ -1,9 +1,9 @@
 # Withdrawal Manager
 
-![Foundry CI](https://github.com/maple-labs/withdrawal-manager-private/actions/workflows/forge.yml/badge.svg)
+![Foundry CI](https://github.com/maple-labs/withdrawal-manager-cyclical/actions/workflows/forge.yml/badge.svg)
 [![GitBook - Documentation](https://img.shields.io/badge/GitBook-Documentation-orange?logo=gitbook&logoColor=white)](https://maplefinance.gitbook.io/maple/maple-for-developers/protocol-overview)
 [![Foundry][foundry-badge]][foundry]
-[![License: BUSL 1.1](https://img.shields.io/badge/License-BUSL%201.1-blue.svg)](https://github.com/maple-labs/withdrawal-manager-private/blob/main/LICENSE)
+[![License: BUSL 1.1](https://img.shields.io/badge/License-BUSL%201.1-blue.svg)](https://github.com/maple-labs/withdrawal-manager-cyclical/blob/main/LICENSE)
 
 [foundry]: https://getfoundry.sh/
 [foundry-badge]: https://img.shields.io/badge/Built%20with-Foundry-FFDB1C.svg
@@ -31,8 +31,8 @@ Versions of dependencies can be checked with `git submodule status`.
 This project was built using [Foundry](https://book.getfoundry.sh/). Refer to installation instructions [here](https://github.com/foundry-rs/foundry#installation).
 
 ```sh
-git clone git@github.com:maple-labs/withdrawal-manager-private.git
-cd withdrawal-manager-private
+git clone git@github.com:maple-labs/withdrawal-manager-cyclical.git
+cd withdrawal-manager-cyclical
 forge install
 ```
 
@@ -50,6 +50,8 @@ forge install
 | Trail of Bits | [`2022-08-24 - Trail of Bits Report`](https://docs.google.com/viewer?url=https://github.com/maple-labs/maple-v2-audits/files/10246688/Maple.Finance.v2.-.Final.Report.-.Fixed.-.2022.pdf) |
 | Spearbit | [`2022-10-17 - Spearbit Report`](https://docs.google.com/viewer?url=https://github.com/maple-labs/maple-v2-audits/files/10223545/Maple.Finance.v2.-.Spearbit.pdf) |
 | Three Sigma | [`2022-10-24 - Three Sigma Report`](https://docs.google.com/viewer?url=https://github.com/maple-labs/maple-v2-audits/files/10223541/three-sigma_maple-finance_code-audit_v1.1.1.pdf) |
+| Three Sigma | [`2023-11-06 - Three Sigma Report`](https://docs.google.com/viewer?url=https://github.com/maple-labs/maple-v2-audits/files/13707288/Maple-Q4-Three-Sigma-Audit.pdf) |
+| 0xMacro | [`2023-11-27 - 0xMacro Report`](https://docs.google.com/viewer?url=https://github.com/maple-labs/maple-v2-audits/files/13707291/Maple-Q4-0xMacro-Audit.pdf) |
 
 ## Bug Bounty
 

@@ -1,11 +1,11 @@
 name: withdrawal-manager
-version: 1.0.0
+version: 1.0.1
 source: contracts
 packages:
-  - path: contracts/WithdrawalManager.sol
-    contractName: WithdrawalManager
-  - path: contracts/WithdrawalManagerFactory.sol
-    contractName: WithdrawalManagerFactory
-  - path: contracts/WithdrawalManagerInitializer.sol
-    contractName: WithdrawalManagerInitializer
+  - path: contracts/MapleWithdrawalManager.sol
+    contractName: MapleWithdrawalManager
+  - path: contracts/MapleWithdrawalManagerFactory.sol
+    contractName: MapleWithdrawalManagerFactory
+  - path: contracts/MapleWithdrawalManagerInitializer.sol
+    contractName: MapleWithdrawalManagerInitializer
 customDescription: Withdrawal Manager Artifacts and ABIs
