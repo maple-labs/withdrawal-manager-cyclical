@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.7;
 
-interface IWithdrawalManagerStorage {
+interface IMapleWithdrawalManagerStorage {
 
     struct CycleConfig {
         uint64 initialCycleId;    // Identifier of the first withdrawal cycle using this configuration.

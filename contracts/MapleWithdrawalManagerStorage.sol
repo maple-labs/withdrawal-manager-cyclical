@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.7;
 
-import { IWithdrawalManagerEvents }  from "./interfaces/IWithdrawalManagerEvents.sol";
-import { IWithdrawalManagerStorage } from "./interfaces/IWithdrawalManagerStorage.sol";
+import { IMapleWithdrawalManagerEvents }  from "./interfaces/IMapleWithdrawalManagerEvents.sol";
+import { IMapleWithdrawalManagerStorage } from "./interfaces/IMapleWithdrawalManagerStorage.sol";
 
-abstract contract WithdrawalManagerStorage is IWithdrawalManagerStorage, IWithdrawalManagerEvents {
+abstract contract MapleWithdrawalManagerStorage is IMapleWithdrawalManagerStorage, IMapleWithdrawalManagerEvents {
 
     address public override pool;
     address public override poolManager;

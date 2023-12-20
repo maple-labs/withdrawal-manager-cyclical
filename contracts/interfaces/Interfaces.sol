@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.7;
 
-interface IMapleGlobalsLike {
+interface IERC20Like {
+
+    function balanceOf(address account_) external view returns (uint256 balance_);
+
+}
+
+interface IGlobalsLike {
 
     function governor() external view returns (address governor_);
 
@@ -14,15 +20,13 @@ interface IMapleGlobalsLike {
         bytes calldata callData_
     ) external view returns (bool isValid_);
 
+    function operationalAdmin() external view returns (address operationalAdmin_);
+
     function protocolPaused() external view returns (bool protocolPaused_);
 
+    function securityAdmin() external view returns (address securityAdmin_);
+
     function unscheduleCall(address caller_, bytes32 functionId_, bytes calldata callData_) external;
-
-}
-
-interface IERC20Like {
-
-    function balanceOf(address account_) external view returns (uint256 balance_);
 
 }
 

@@ -6,6 +6,8 @@ import { MockERC20 } from "../../modules/erc20/contracts/test/mocks/MockERC20.so
 contract MockGlobals {
 
     address public governor;
+    address public operationalAdmin;
+    address public securityAdmin;
 
     bool internal _isValidScheduledCall;
 
@@ -31,8 +33,16 @@ contract MockGlobals {
         _isValidScheduledCall = isValid_;
     }
 
+    function __setOperationalAdmin(address operationalAdmin_) external {
+        operationalAdmin = operationalAdmin_;
+    }
+
     function __setProtocolPaused(bool protocolPaused_) external {
         protocolPaused = protocolPaused_;
+    }
+
+    function __setSecurityAdmin(address securityAdmin_) external {
+        securityAdmin = securityAdmin_;
     }
 
 }
