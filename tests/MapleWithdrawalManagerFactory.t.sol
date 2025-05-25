@@ -83,10 +83,11 @@ contract MapleWithdrawalManagerFactoryTests is Test {
         factory.createInstance(calldata_, "SALT");
     }
 
-    function testFail_createInstance_collision() external {
+    function test_createInstance_collision() external {
         bytes memory calldata_ = abi.encode(address(pool), block.timestamp, 1, 1);
 
         factory.createInstance(calldata_, "SALT");
+        vm.expectRevert();
         factory.createInstance(calldata_, "SALT");
     }
 
